@@ -9,7 +9,7 @@
 
   [![Bun](https://img.shields.io/badge/bun-v1.2.16-black?style=for-the-badge&logo=bun)](https://bun.sh)
   [![Typescript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-  [![Express.js](https://img.shields.io/badge/express.js-%23404d59.svg?style=for-the-badge&logo=express&logoColor=%2361DAFB)](https://expressjs.com/)
+  [![Hono](https://img.shields.io/badge/hono-E36002?style=for-the-badge&logo=hono&logoColor=white)](https://hono.dev/)
   <br/>
   <br/>
   ![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/samuhlo-training/sport-counters?utm_source=oss&utm_medium=github&utm_campaign=samuhlo-training%2Fsport-counters&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
@@ -35,10 +35,11 @@
 
 | COMPONENTE | TECNOLOGÍA | NOTA |
 | :--- | :--- | :--- |
-| **Runtime** | `Bun` | Entorno de ejecución de JavaScript rápido y todo en uno |
-| **Servidor** | `Express` | Framework web minimalista para Node/Bun |
-| **Base de Datos** | `Neon DB` | PostgreSQL serverless con branching |
-| **ORM** | `Drizzle` | ORM de TypeScript para máximo rendimiento y seguridad de tipos |
+| **Runtime** | `Bun` | Entorno JS/TS ultra-rápido |
+| **Framework** | `Hono` | Estándares Web, ligero y tipado |
+| **Real-time** | `Bun WS` | WebSockets nativos de alto rendimiento |
+| **Base de Datos** | `Neon DB` | PostgreSQL serverless |
+| **ORM** | `Drizzle` | TypeScript ORM, seguro y potente |
 
 <br>
 
@@ -58,7 +59,13 @@ bun run dev
 ```
 
 ### 03 __ CARACTERÍSTICAS CLAVE
-[Documentación pendiente a medida que se finalizan las funcionalidades]
+### 03 __ CARACTERÍSTICAS CLAVE
+
+*   **Rendimiento Nativo**: Construido sobre `Bun.serve` y WebSockets optimizados en C++.
+*   **Real-Time Broadcasting**: Abstracciones limpias para comunicación en tiempo real.
+*   **Tipado Estricto**: Integración total de TypeScript + Zod para validación.
+*   **Arquitectura Limpia**: Separación clara por dominios, NO por capas técnicas.
+*   **Brutalist Code Style**: Comentarios y logs diseñados para máxima legibilidad y depuración visual.
 
 <div align="center">
 <br />
