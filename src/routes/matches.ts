@@ -1,12 +1,12 @@
 /**
- * █ [API_ROUTE] :: MATCHES_HANDLER
+ * █ [API_ROUTE] :: MATCHES_HANDLER (HONO EDITION)
  * =====================================================================
- * DESC:   Gestiona las operaciones CRUD para los partidos.
- *         Maneja la creación y listado, incluyendo lógica de estado.
- * STATUS: ESTABLE
+ * DESC:   Manages CRUD operations for matches.
+ *         Refactored to use Hono Framework (Superior DX).
+ * STATUS: STABLE
  * =====================================================================
  */
-import { Router } from "express";
+import { Hono } from "hono";
 import {
   createMatchSchema,
   listMatchesQuerySchema,
@@ -15,79 +15,106 @@ import { db } from "../db/db.ts";
 import { matches } from "../db/schema.ts";
 import { getMatchStatus } from "../utils/match-status.ts";
 import { desc } from "drizzle-orm";
+import { broadcastMatchCreated } from "../ws/server.ts";
+
+/**
+ * ◼️ HONO CONTEXT ('c')
+ * ---------------------------------------------------------
+ * In Hono, 'c' stands for Context. It replaces 'req' and 'res'.
+ * It is the swiss-army knife of the framework:
+ * - c.req  -> The Request object (headers, query, body)
+ * - c.json -> Helper to return JSON responses type-safely
+ * - c.text -> Helper to return text responses
+ * - c.env  -> Environment variables defined in Hono
+ */
 
 // =============================================================================
-// █ CONFIGURACIÓN: ROUTER
+// █ CONFIG: HONO MIN-APP
 // =============================================================================
-export const matchRouter = Router();
+export const matchesApp = new Hono();
 
-// [CONSTANTE] -> Límite duro para evitar sobrecarga en la BD
+// [CONST] -> Hard limit to prevent DB overload
 const MAX_LIMIT = 100;
 
 // =============================================================================
 // █ ENDPOINT: GET /
 // =============================================================================
-// DESC: Listar partidos ordenados por fecha de creación (más recientes primero).
-matchRouter.get("/", async (req, res) => {
-  // 1. VALIDACIÓN -> Aseguramos que los query params sean seguros
-  const parsed = listMatchesQuerySchema.safeParse(req.query);
+// DESC: List matches via query params.
+matchesApp.get("/", async (c) => {
+  // 1. VALIDATION
+  // c.req.query() returns a simple object. Zod validates it.
+  const parsed = listMatchesQuerySchema.safeParse(c.req.query());
 
   if (!parsed.success) {
-    return res.status(400).json({
-      error: "Fallo en la carga de partido",
-      details: JSON.stringify(parsed.error),
-    });
+    console.log(`[API]   :: INVALID_REQ   :: path: GET /matches`);
+    return c.json(
+      {
+        error: "Failed to load matches",
+        details: JSON.stringify(parsed.error),
+      },
+      400,
+    );
   }
 
-  // 2. LÓGICA DE NEGOCIO -> Aplicar límites seguros
+  // 2. BUSINESS LOGIC
   const limit = Math.min(parsed.data.limit ?? 50, MAX_LIMIT);
 
   try {
-    // 3. CONSULTA ORM -> Select simple con ordenamiento predecible
+    // 3. ORM QUERY
     const data = await db
       .select()
       .from(matches)
       .orderBy(desc(matches.createdAt))
       .limit(limit);
-    res.status(200).json({ data });
+
+    // [SUCCESS] -> Log retrieval
+    // console.log(`[DB]    ++ FETCHED       :: count: ${data.length}`);
+    // ^ Commented out to avoid noise, enable if needed.
+
+    return c.json({ data });
   } catch (error) {
-    console.error("Error al obtener los partidos:", error);
-    res.status(500).json({
-      error: "Error al obtener los partidos.",
-    });
+    console.error(`[ERR]   :: DB_QUERY      :: ${error}`);
+    return c.json({ error: "Internal Server Error" }, 500);
   }
 });
 
 // =============================================================================
 // █ ENDPOINT: POST /
 // =============================================================================
-// DESC: Crear un nuevo partido calculando su estado inicial automáticamente.
-matchRouter.post("/", async (req, res) => {
-  // 1. VALIDACIÓN -> Zod verifica tipos y reglas de negocio básicas
-  const result = createMatchSchema.safeParse(req.body);
+matchesApp.post("/", async (c) => {
+  // [START] -> Request processing
+
+  // 1. BODY VALIDATION
+  // "await c.req.json()" is the modern way to get body content.
+  const body = await c.req.json();
+  const result = createMatchSchema.safeParse(body);
 
   if (!result.success) {
-    return res.status(400).json({
-      error: "Fallo en la carga de partido",
-      details: JSON.stringify(result.error),
-    });
+    console.log(
+      `[API]   :: INVALID_BODY  :: ${JSON.stringify(result.error).slice(0, 100)}...`,
+    );
+    return c.json(
+      {
+        error: "Validation failed",
+        details: JSON.stringify(result.error),
+      },
+      400,
+    );
   }
 
   const { startTime, endTime, homeScore, awayScore, ...matchData } =
     result.data;
 
-  // 2. REGLA DE NEGOCIO -> El estado se deriva del tiempo, no se confía en el cliente
+  // 2. BUSINESS RULE -> Server-side status calculation
   const calculatedStatus = getMatchStatus(startTime, endTime);
 
-  // [SAFETY] -> Si las fechas son inválidas, detenemos la operación
   if (!calculatedStatus) {
-    return res.status(400).json({
-      error: "Fechas inválidas para calcular el estado del partido",
-    });
+    return c.json({ error: "Invalid dates for status calculation" }, 400);
   }
 
   try {
-    // 3. PERSISTENCIA -> Insertamos y retornamos el objeto creado
+    // 3. PERSISTENCE
+    console.log(`[DB]    >> INSERTING     :: sport: ${matchData.sport}`);
     const [event] = await db
       .insert(matches)
       .values({
@@ -96,14 +123,18 @@ matchRouter.post("/", async (req, res) => {
         endTime: new Date(endTime),
         homeScore: homeScore ?? 0,
         awayScore: awayScore ?? 0,
-        status: calculatedStatus, // Estado calculado por el servidor
+        status: calculatedStatus,
       })
       .returning();
-    res.status(201).json({ data: event });
+
+    console.log(`[DB]    ++ SAVED         :: id: ${event?.id}`);
+
+    // 4. BROADCAST -> Real-time magic
+    broadcastMatchCreated(event);
+
+    return c.json({ data: event }, 201);
   } catch (error) {
-    console.error("Error al crear el partido:", error);
-    res.status(500).json({
-      error: "Error al crear el partido.",
-    });
+    console.error(`[ERR]   :: CREATE_MATCH  :: ${error}`);
+    return c.json({ error: "Internal Server Error" }, 500);
   }
 });
