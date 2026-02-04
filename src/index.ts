@@ -1,14 +1,15 @@
 /**
- * █ [SERVICE] :: EXPRESS_ENTRY
+ * █ [SERVICIO] :: PUNTO_ENTRADA_EXPRESS
  * =====================================================================
- * DESC:   Main entry point for the sports counters backend.
- * STATUS: STABLE
+ * DESC:   Punto de entrada principal para el backend de sport-counters.
+ * STATUS: ESTABLE
  * =====================================================================
  */
 import express, { type Request, type Response } from "express";
+import { matchRouter } from "./routes/matches";
 
 // =============================================================================
-// █ CORE: CONFIG & MIDDLEWARE
+// █ NÚCLEO: CONFIGURACIÓN Y MIDDLEWARE
 // =============================================================================
 const app = express();
 const PORT = 8000;
@@ -16,14 +17,16 @@ const PORT = 8000;
 app.use(express.json());
 
 // =============================================================================
-// █ ROUTES: API ENDPOINTS
+// █ RUTAS: ENDPOINTS DE LA API
 // =============================================================================
 app.get("/", (_req: Request, res: Response) => {
   res.json({ message: "¡Servidor Express con TypeScript funcionando!" });
 });
 
+app.use("/matches", matchRouter);
+
 // =============================================================================
-// █ LIFECYCLE: STARTUP
+// █ CICLO DE VIDA: ARRANQUE
 // =============================================================================
 app.listen(PORT, () => {
   console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
