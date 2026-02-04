@@ -1,33 +1,80 @@
 /**
- * █ [SERVICIO] :: PUNTO_ENTRADA_EXPRESS
+ * █ [SERVICIO] :: PUNTO_ENTRADA_HONO
  * =====================================================================
  * DESC:   Punto de entrada principal para el backend de sport-counters.
+ *         Ahora potenciado por Hono 🔥 para máxima velocidad y DX.
  * STATUS: ESTABLE
  * =====================================================================
  */
-import express, { type Request, type Response } from "express";
-import { matchRouter } from "./routes/matches";
+import { Hono } from "hono";
+import { matchesApp } from "./routes/matches.ts";
+import {
+  websocketHandler,
+  type WebSocketData,
+  setServerRef,
+} from "./ws/server.ts";
+
+const PORT = Number(process.env.PORT) || 8000;
+const HOST = process.env.HOST || "0.0.0.0";
 
 // =============================================================================
-// █ NÚCLEO: CONFIGURACIÓN Y MIDDLEWARE
+// █ CONFIGURACIÓN: APP (HONO)
 // =============================================================================
-const app = express();
-const PORT = 8000;
+// Hono es nuestro "Enrutador Inteligente". Define QUÉ hacer con las peticiones.
+const app = new Hono();
 
-app.use(express.json());
-
-// =============================================================================
-// █ RUTAS: ENDPOINTS DE LA API
-// =============================================================================
-app.get("/", (_req: Request, res: Response) => {
-  res.json({ message: "¡Servidor Express con TypeScript funcionando!" });
+// [MIDDLEWARE] -> Logging simple para ver qué pasa
+app.use("*", async (c, next) => {
+  console.log(`📡 [${c.req.method}] ${c.req.url}`);
+  await next();
 });
 
-app.use("/matches", matchRouter);
+// [RUTAS] -> Montamos nuestras mini-apps
+app.route("/matches", matchesApp);
+
+// [HEALTH CHECK]
+app.get("/", (c) => {
+  return c.json({
+    message: "¡Servidor Hono + Bun + TypeScript funcionando a tope! 🚀",
+  });
+});
 
 // =============================================================================
-// █ CICLO DE VIDA: ARRANQUE
+// █ CONFIGURACIÓN: SERVIDOR (BUN)
 // =============================================================================
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
+// Bun.serve es el "Motor". Ejecuta el código y maneja los sockets a bajo nivel.
+const server = Bun.serve<WebSocketData>({
+  port: PORT,
+  hostname: HOST,
+
+  // Hono tiene un método .fetch que es compatible 100% con Bun.
+  // Le pasamos el control de las peticiones HTTP a Hono.
+  fetch: (req, server) => {
+    const url = new URL(req.url);
+    // 1. Interceptamos upgrade a WebSocket
+    if (
+      url.pathname === "/ws" &&
+      server.upgrade(req, {
+        data: { createdAt: Date.now() },
+      })
+    ) {
+      return undefined; // Bun maneja el resto
+    }
+
+    // 2. Si no es WS, Hono se encarga
+    return app.fetch(req, server);
+  },
+
+  // Manejadores WebSocket (definidos en otro archivo para limpieza)
+  websocket: websocketHandler,
 });
+
+// [CRÍTICO] -> Guardamos la referencia para poder hacer broadcast desde las rutas
+setServerRef(server);
+
+const baseUrl =
+  HOST === "0.0.0.0" ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
+console.log(`🔥 Servidor Hono corriendo en ${baseUrl}`);
+console.log(
+  `🔥 Servidor WebSocket corriendo en ${baseUrl.replace("http", "ws")}/ws`,
+);
