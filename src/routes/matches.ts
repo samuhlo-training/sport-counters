@@ -51,9 +51,9 @@ matchRouter.get("/", async (req, res) => {
       .limit(limit);
     res.status(200).json({ data });
   } catch (error) {
+    console.error("Error al obtener los partidos:", error);
     res.status(500).json({
       error: "Error al obtener los partidos.",
-      details: JSON.stringify(error),
     });
   }
 });
@@ -101,9 +101,9 @@ matchRouter.post("/", async (req, res) => {
       .returning();
     res.status(201).json({ data: event });
   } catch (error) {
+    console.error("Error al crear el partido:", error);
     res.status(500).json({
       error: "Error al crear el partido.",
-      details: JSON.stringify(error),
     });
   }
 });

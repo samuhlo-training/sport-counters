@@ -51,8 +51,13 @@ export function getMatchStatus(
 export async function syncMatchStatus(
   match: Match,
   updateStatus: (status: MatchStatus) => Promise<void>,
-) {
-  const nextStatus = getMatchStatus(match.startTime!, match.endTime!);
+): Promise<MatchStatus> {
+  // [SAFETY] -> Validación explícita antes de calcular
+  if (!match.startTime || !match.endTime) {
+    return match.status as MatchStatus;
+  }
+
+  const nextStatus = getMatchStatus(match.startTime, match.endTime);
 
   if (!nextStatus) {
     // Si falla el cálculo, mantenemos el estado actual por seguridad
