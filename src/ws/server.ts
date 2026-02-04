@@ -37,8 +37,12 @@ export const websocketHandler = {
   },
 
   message(ws: ServerWebSocket<WebSocketData>, message: string | Buffer) {
-    // [DEBUG] -> Log incoming messages for traceability
-    console.log(`[WS]    :: MSG_REC       :: content: ${message}`);
+    // [DEBUG] -> Log message receipt (content omitted for privacy)
+    const msgPreview =
+      typeof message === "string"
+        ? `${message.slice(0, 50)}${message.length > 50 ? "..." : ""}`
+        : `<Buffer ${message.byteLength} bytes>`;
+    console.log(`[WS]    :: MSG_REC       :: preview: ${msgPreview}`);
   },
 
   close(ws: ServerWebSocket<WebSocketData>) {

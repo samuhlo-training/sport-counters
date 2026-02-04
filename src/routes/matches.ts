@@ -86,7 +86,14 @@ matchesApp.post("/", async (c) => {
 
   // 1. BODY VALIDATION
   // "await c.req.json()" is the modern way to get body content.
-  const body = await c.req.json();
+  // 1. BODY VALIDATION
+  // "await c.req.json()" is the modern way to get body content.
+  let body;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
   const result = createMatchSchema.safeParse(body);
 
   if (!result.success) {
@@ -127,7 +134,12 @@ matchesApp.post("/", async (c) => {
       })
       .returning();
 
-    console.log(`[DB]    ++ SAVED         :: id: ${event?.id}`);
+    if (!event) {
+      console.error(`[ERR]   :: CREATE_MATCH  :: Insert returned no rows`);
+      return c.json({ error: "Failed to create match" }, 500);
+    }
+
+    console.log(`[DB]    ++ SAVED         :: id: ${event.id}`);
 
     // 4. BROADCAST -> Real-time magic
     broadcastMatchCreated(event);

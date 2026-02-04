@@ -45,12 +45,15 @@ app.get("/", (c) => {
 // Bun.serve es el "Motor". Ejecuta el código y maneja los sockets a bajo nivel.
 const server = Bun.serve<WebSocketData>({
   port: PORT,
+  hostname: HOST,
 
   // Hono tiene un método .fetch que es compatible 100% con Bun.
   // Le pasamos el control de las peticiones HTTP a Hono.
   fetch: (req, server) => {
+    const url = new URL(req.url);
     // 1. Interceptamos upgrade a WebSocket
     if (
+      url.pathname === "/ws" &&
       server.upgrade(req, {
         data: { createdAt: Date.now() },
       })
