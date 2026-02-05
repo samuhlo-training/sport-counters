@@ -43,11 +43,13 @@ export const websocketHandler = {
         ? `${message.slice(0, 50)}${message.length > 50 ? "..." : ""}`
         : `<Buffer ${message.byteLength} bytes>`;
     console.log(`[WS]    :: MSG_REC       :: preview: ${msgPreview}`);
+    handleMatchMessage(ws, message);
   },
 
   close(ws: ServerWebSocket<WebSocketData>) {
     console.log(`[WS]    :: DISCONNECTED  :: ip: ${ws.remoteAddress}`);
     ws.unsubscribe("global");
+    cleanUpMatchSubscriptions(ws);
   },
 };
 
@@ -71,10 +73,97 @@ export function getServerRef() {
   return serverRef;
 }
 
+const matchSubscribers = new Map<string, Set<ServerWebSocket<WebSocketData>>>();
+
+function susbscribeToMatch(
+  matchId: string,
+  socket: ServerWebSocket<WebSocketData>,
+) {
+  if (!matchSubscribers.has(matchId)) {
+    matchSubscribers.set(matchId, new Set());
+  }
+  matchSubscribers.get(matchId)!.add(socket);
+}
+
+function unsubscribeFromMatch(
+  matchId: string,
+  socket: ServerWebSocket<WebSocketData>,
+) {
+  matchSubscribers.get(matchId)?.delete(socket);
+}
+
+function cleanUpMatchSubscriptions(socket: ServerWebSocket<WebSocketData>) {
+  for (const [matchId, sockets] of matchSubscribers.entries()) {
+    if (sockets.has(socket)) {
+      unsubscribeFromMatch(matchId, socket);
+    }
+  }
+}
+
+function broadcastToMatch(matchId: string, payload: any) {
+  const subscribers = matchSubscribers.get(matchId);
+  if (!subscribers || subscribers.size === 0) return;
+  const message = JSON.stringify(payload);
+  for (const client of subscribers) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  }
+}
+
+/**
+ * ◼️ HANDLER: MATCH MESSAGES
+ * ---------------------------------------------------------
+ * Procesa mensajes específicos de un partido (suscripciones).
+ * PROTOCOLO:
+ * - SUBSCRIBE: Cliente quiere recibir eventos de un partido.
+ * - UNSUBSCRIBE: Cliente deja de escuchar.
+ */
+function handleMatchMessage(
+  socket: ServerWebSocket<WebSocketData>,
+  data: unknown,
+) {
+  let message: any;
+  try {
+    message = JSON.parse(data as string);
+  } catch (err) {
+    console.error(`[WS]    :: JSON_PARSE_ERR ::`, err);
+    sendJson(socket, {
+      type: "ERROR",
+      payload: "Invalid JSON",
+    });
+    return;
+  }
+
+  // 1. SUSCRIPCIONES (SUBSCRIBE)
+  if (message?.type === "SUBSCRIBE" && message?.matchId) {
+    const matchId = String(message.matchId);
+    susbscribeToMatch(matchId, socket);
+    socket.subscribe(matchId); // Bun pub/sub
+    sendJson(socket, {
+      type: "SUBSCRIBED",
+      payload: `Subscribed to match ${matchId}`,
+    });
+    return;
+  }
+
+  // 2. DESUSCRIPCIONES (UNSUBSCRIBE)
+  if (message?.type === "UNSUBSCRIBE" && message?.matchId) {
+    const matchId = String(message.matchId);
+    unsubscribeFromMatch(matchId, socket);
+    socket.unsubscribe(matchId); // Bun pub/sub
+    sendJson(socket, {
+      type: "UNSUBSCRIBED",
+      payload: `Unsubscribed from match ${matchId}`,
+    });
+    return;
+  }
+}
+
 // =============================================================================
 // █ UTILITIES: BROADCAST (LOW LEVEL)
 // =============================================================================
-export function broadcastJson(topic: string, payload: any) {
+export function broadcastToAll(topic: string, payload: any) {
   try {
     const server = getServerRef();
     // .publish() es el método de broadcasting de Bun optimizado en C++
@@ -119,8 +208,21 @@ export function broadcastMatchCreated(match: any) {
   console.log(
     `[WS]    -> BROADCAST     :: event: MATCH_CREATED | id: ${match.id}`,
   );
-  broadcastJson("global", {
+  broadcastToAll("global", {
     type: "MATCH_CREATED",
     data: match,
+  });
+}
+
+/**
+ * ◼️ BROADCAST: COMMENTARY EVENT
+ * ---------------------------------------------------------
+ * Envia actualizaciones en tiempo real (goles, faltas, etc.).
+ * TARGET: Solo suscriptores del partido (Room/Channel específico).
+ */
+export function broadcastCommentary(matchId: string, comment: any) {
+  broadcastToMatch(matchId, {
+    type: "COMMENTARY",
+    data: comment,
   });
 }

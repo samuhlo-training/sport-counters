@@ -116,7 +116,10 @@ app.use("/ws", async (c, next) => {
 
 // [RUTAS] -> Montar Sub-Aplicaciones
 app.route("/matches", matchesApp);
-app.route("/commentary", commentaryApp);
+app.route("/matches", commentaryApp);
+// [EXPLICACIÓN] -> ¿Por qué "/matches" y no "/commentary"?
+// Esto monta las rutas de comentarios bajo "/matches".
+// Resultado final: "/matches/:id/commentary" (Jerarquía RESTful lógica).
 
 // [VITALIDAD] (HEALTH CHECK)
 app.get("/", (c) => {

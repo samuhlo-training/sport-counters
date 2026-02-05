@@ -15,6 +15,7 @@ import {
 } from "../validation/commentary.ts";
 import { matchIdParamSchema } from "../validation/matches.ts";
 import { desc, eq } from "drizzle-orm";
+import { broadcastCommentary } from "../ws/server.ts";
 
 // =============================================================================
 // █ CONFIG: ROUTER SETUP
@@ -37,7 +38,7 @@ commentaryApp.get("/", (c) => {
 // █ ENDPOINT: GET /:id
 // =============================================================================
 // DESC: Obtiene el feed de comentarios de un partido específico.
-commentaryApp.get("/:id", async (c) => {
+commentaryApp.get("/:id/commentary", async (c) => {
   // 1. VALIDATION: PARAMS (URL)
   const paramsResult = matchIdParamSchema.safeParse(c.req.param());
   if (!paramsResult.success) {
@@ -81,7 +82,7 @@ commentaryApp.get("/:id", async (c) => {
 // █ ENDPOINT: POST /:id
 // =============================================================================
 // DESC: Agrega un nuevo evento (gol, tarjeta, etc.) al feed del partido.
-commentaryApp.post("/:id", async (c) => {
+commentaryApp.post("/:id/commentary", async (c) => {
   // 1. VALIDATION: PARAMS
   const paramsResult = matchIdParamSchema.safeParse(c.req.param());
   if (!paramsResult.success) {
@@ -128,6 +129,18 @@ commentaryApp.post("/:id", async (c) => {
 
     // [SUCCESS] -> Log de confirmación
     console.log(`[DB]    ++ SAVED COMMENTARY     :: id: ${newCommentary.id}`);
+
+    // [REAL-TIME] -> Broadcast to subscribers
+    // PATRÓN: Fire & Forget. No bloqueamos la respuesta HTTP si el WS falla.
+    // Solo notificamos a los clientes suscritos a este partido específico.
+    try {
+      broadcastCommentary(String(matchId), newCommentary);
+    } catch (wsError) {
+      console.error(
+        `[WARN]  :: BROADCAST_FAIL       :: match: ${matchId}`,
+        wsError,
+      );
+    }
 
     return c.json({ data: newCommentary }, 201);
   } catch (error) {
