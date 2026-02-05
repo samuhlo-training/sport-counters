@@ -40,7 +40,7 @@ export const matchIdParamSchema = z.object({
 
 // [HELPER] -> ISO_8601 Date Format validation
 const ISO_8601_REGEX =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const isoDateString = z
   .string()
@@ -56,9 +56,9 @@ const isoDateString = z
  */
 export const createMatchSchema = z
   .object({
-    sport: z.string().min(1),
-    homeTeam: z.string().min(1),
-    awayTeam: z.string().min(1),
+    sport: z.string().min(1).max(100),
+    homeTeam: z.string().min(1).max(200),
+    awayTeam: z.string().min(1).max(200),
     startTime: isoDateString,
     endTime: isoDateString,
     homeScore: z.coerce.number().int().nonnegative().optional(),

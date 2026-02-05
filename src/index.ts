@@ -15,6 +15,7 @@ import {
   type WebSocketData,
   setServerRef,
 } from "./ws/server.ts";
+import { commentaryApp } from "./routes/commentary.ts";
 
 // =============================================================================
 // █ CONFIG: ENTORNO
@@ -68,11 +69,22 @@ app.use("*", async (c, next) => {
  */
 app.use("/ws", async (c, next) => {
   // A. IDENTIFICAR -> Obtener IP del cliente
-  // Fallback a 127.0.0.1 si falta la IP o los headers
-  const ip =
+  let ip =
     c.req.header("CF-Connecting-IP") ||
-    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "127.0.0.1";
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+
+  if (!ip) {
+    const server = c.env as unknown as import("bun").Server<WebSocketData>;
+    const socketIp = server?.requestIP(c.req.raw)?.address;
+    ip = socketIp || "127.0.0.1";
+
+    console.warn(
+      `[WARN]  :: IP_FALLBACK   :: Missing proxy headers. Using socket IP: ${ip}`,
+    );
+  }
+
+  // [SECURITY] -> Limit length (IPv6 max 45 chars)
+  ip = (ip || "127.0.0.1").slice(0, 45);
 
   // B. VERIFICAR -> Pedir permiso a Redis
   let limitResult;
@@ -104,6 +116,7 @@ app.use("/ws", async (c, next) => {
 
 // [RUTAS] -> Montar Sub-Aplicaciones
 app.route("/matches", matchesApp);
+app.route("/commentary", commentaryApp);
 
 // [VITALIDAD] (HEALTH CHECK)
 app.get("/", (c) => {

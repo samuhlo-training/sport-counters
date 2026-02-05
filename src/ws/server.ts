@@ -75,9 +75,9 @@ export function getServerRef() {
 // █ UTILITIES: BROADCAST (LOW LEVEL)
 // =============================================================================
 export function broadcastJson(topic: string, payload: any) {
-  const server = getServerRef();
-  // .publish() es el método de broadcasting de Bun optimizado en C++
   try {
+    const server = getServerRef();
+    // .publish() es el método de broadcasting de Bun optimizado en C++
     server.publish(topic, JSON.stringify(payload));
   } catch (err) {
     console.error(`[WS]    :: BROADCAST_ERR :: topic: ${topic}`, err);
@@ -98,9 +98,8 @@ export function sendJson(ws: ServerWebSocket<WebSocketData>, payload: any) {
     const data = JSON.stringify(payload);
     return ws.send(data);
   } catch (error) {
-    const logger = (ws as any).logger || console;
-    logger.error(`[ERR]   :: JSON_SEND_ERR :: Serialization failed`, {
-      payload,
+    console.error(`[ERR]   :: JSON_SEND_ERR :: Serialization failed`, {
+      payloadType: typeof payload,
       error,
     });
     return 0;
