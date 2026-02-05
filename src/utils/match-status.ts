@@ -76,10 +76,14 @@ export async function syncMatchStatus(
 
   // [OPTIMIZATION] -> Solo actualizamos si hubo cambio real
   if (match.status !== nextStatus) {
-    await updateStatus(nextStatus);
-
-    // [MUTATION] -> Actualizamos la referencia en memoria para consistencia inmediata
+    const previousStatus = match.status;
     (match as any).status = nextStatus;
+    try {
+      await updateStatus(nextStatus);
+    } catch (error) {
+      (match as any).status = previousStatus; // rollback
+      throw error;
+    }
   }
   return match.status as MatchStatus;
 }

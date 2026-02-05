@@ -117,8 +117,8 @@ commentaryApp.post("/:id", async (c) => {
     const [newCommentary] = await db
       .insert(commentary)
       .values({
-        matchId,
         ...commentaryData,
+        matchId, // Ensure URL param takes precedence
       })
       .returning();
 
