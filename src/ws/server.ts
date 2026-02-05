@@ -89,7 +89,13 @@ function unsubscribeFromMatch(
   matchId: string,
   socket: ServerWebSocket<WebSocketData>,
 ) {
-  matchSubscribers.get(matchId)?.delete(socket);
+  const subscribers = matchSubscribers.get(matchId);
+  if (subscribers) {
+    subscribers.delete(socket);
+    if (subscribers.size === 0) {
+      matchSubscribers.delete(matchId);
+    }
+  }
 }
 
 function cleanUpMatchSubscriptions(socket: ServerWebSocket<WebSocketData>) {
