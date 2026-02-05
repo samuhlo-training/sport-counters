@@ -59,9 +59,14 @@ export async function syncMatchStatus(
     // [PERSISTENCIA] -> Si el estado es inválido o falta, forzamos SCHEDULED y guardamos
     if (!isValid) {
       const fallbackStatus = MATCH_STATUS.SCHEDULED;
-      await updateStatus(fallbackStatus);
-      // [MUTACIÓN] -> Actualizamos la referencia en memoria
+      const previousStatus = match.status;
       (match as any).status = fallbackStatus;
+      try {
+        await updateStatus(fallbackStatus);
+      } catch (error) {
+        (match as any).status = previousStatus; // rollback
+        throw error;
+      }
     }
 
     return match.status as MatchStatus;

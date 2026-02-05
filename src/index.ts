@@ -55,8 +55,9 @@ const app = new Hono();
 
 // [MIDDLEWARE] -> Global Request Logger
 app.use("*", async (c, next) => {
+  const url = new URL(c.req.url);
   console.log(
-    `[HTTP]  :: INCOMING_REQ  :: method: ${c.req.method} | path: ${c.req.url}`,
+    `[HTTP]  :: INCOMING_REQ  :: method: ${c.req.method} | path: ${url.pathname}`,
   );
   await next();
 });
@@ -116,7 +117,10 @@ app.use("/ws", async (c, next) => {
 
 // [RUTAS] -> Montar Sub-Aplicaciones
 app.route("/matches", matchesApp);
-app.route("/commentary", commentaryApp);
+app.route("/matches", commentaryApp);
+// [EXPLICACIÓN] -> ¿Por qué "/matches" y no "/commentary"?
+// Esto monta las rutas de comentarios bajo "/matches".
+// Resultado final: "/matches/:id/commentary" (Jerarquía RESTful lógica).
 
 // [VITALIDAD] (HEALTH CHECK)
 app.get("/", (c) => {
