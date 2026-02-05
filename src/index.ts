@@ -1,12 +1,14 @@
 /**
- * █ [SERVICIO] :: PUNTO_ENTRADA_HONO
+ * █ [CORE] :: HTTP_ENTRY_POINT
  * =====================================================================
- * DESC:   Punto de entrada principal para el backend de sport-counters.
- *         Ahora potenciado por Hono 🔥 para máxima velocidad y DX.
- * STATUS: ESTABLE
+ * DESC:   Main entry point for Sport Counters Backend.
+ *         Orchestrates Hono (Router), Bun (Server), and Upstash (Redis).
+ * STATUS: STABLE
  * =====================================================================
  */
 import { Hono } from "hono";
+import { Redis } from "@upstash/redis";
+import { Ratelimit } from "@upstash/ratelimit";
 import { matchesApp } from "./routes/matches.ts";
 import {
   websocketHandler,
@@ -14,67 +16,127 @@ import {
   setServerRef,
 } from "./ws/server.ts";
 
+// =============================================================================
+// █ CONFIG: ENVIRONMENT
+// =============================================================================
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || "0.0.0.0";
 
 // =============================================================================
-// █ CONFIGURACIÓN: APP (HONO)
+// █ INFRA: UPSTASH REDIS (RATE LIMITING)
 // =============================================================================
-// Hono es nuestro "Enrutador Inteligente". Define QUÉ hacer con las peticiones.
+// 1. CONNECTION CLIENT
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
+
+// 2. LIMITER STRATEGY (SLIDING WINDOW)
+// POLICY: 5 requests per 10 seconds per IP.
+// WHY:    Prevent abuse of WebSocket connections.
+const ratelimit = new Ratelimit({
+  redis: redis,
+  limiter: Ratelimit.slidingWindow(5, "10 s"),
+});
+
+// =============================================================================
+// █ APP: HONO ROUTER
+// =============================================================================
 const app = new Hono();
 
-// [MIDDLEWARE] -> Logging simple para ver qué pasa
+// [MIDDLEWARE] -> Global Request Logger
 app.use("*", async (c, next) => {
-  console.log(`📡 [${c.req.method}] ${c.req.url}`);
+  console.log(
+    `[HTTP]  :: REQ_IN        :: method: ${c.req.method} | path: ${c.req.url}`,
+  );
   await next();
 });
 
-// [RUTAS] -> Montamos nuestras mini-apps
+/**
+ * ◼️ MIDDLEWARE: RATE LIMITER PROTECTOR
+ * ---------------------------------------------------------
+ * Intercepts /ws requests to enforce rate limits before upgrade.
+ * Strategy: Check IP against Redis.
+ */
+app.use("/ws", async (c, next) => {
+  // A. IDENTIFY -> Get Client IP
+  // Fallback to 127.0.0.1 if localhost/headers missing
+  const ip =
+    c.req.header("CF-Connecting-IP") ||
+    c.req.header("x-forwarded-for") ||
+    "127.0.0.1";
+
+  // B. VERIFY -> Ask Redis for permission
+  const { success, remaining } = await ratelimit.limit(ip);
+
+  // C. BLOCK -> Limit Exceeded
+  if (!success) {
+    console.log(`[SEC]   :: RATE_LIMIT    :: ip: ${ip} | ACTION: BLOCKED`);
+    return c.text("ERROR: Rate limit exceeded. Chill out.", 429);
+  }
+
+  // D. ALLOW -> Proceed
+  // [DEBUG] -> Log allowed access (Optional: comment out for production)
+  // console.log(`[SEC]   :: ACCESS_OK     :: ip: ${ip} | remaining: ${remaining}`);
+
+  await next();
+});
+
+// [ROUTES] -> Mount Sub-Apps
 app.route("/matches", matchesApp);
 
-// [HEALTH CHECK]
+// [HEALTH_CHECK]
 app.get("/", (c) => {
   return c.json({
-    message: "¡Servidor Hono + Bun + TypeScript funcionando a tope! 🚀",
+    status: "online",
+    system: "Hono + Bun + TypeScript",
+    message: "Sport Counters API is operational 🚀",
   });
 });
 
+/**
+ * ◼️ ENDPOINT: WEBSOCKET HANDSHAKE
+ * ---------------------------------------------------------
+ * This is the final destination for /ws requests.
+ * 1. Middleware has already run (Rate Limit checked).
+ * 2. We now upgrade the HTTP connection to a WebSocket.
+ */
+app.get("/ws", (c) => {
+  // Bun.serve passes the 'server' instance as 'env' to Hono.
+  const server = c.env as unknown as import("bun").Server<WebSocketData>;
+
+  if (server.upgrade(c.req.raw, { data: { createdAt: Date.now() } })) {
+    // Return empty response. Bun handles the socket upgrade natively.
+    return new Response(null);
+  }
+
+  return c.text("WebSocket upgrade failed", 500);
+});
+
 // =============================================================================
-// █ CONFIGURACIÓN: SERVIDOR (BUN)
+// █ CORE: BUN SERVER
 // =============================================================================
-// Bun.serve es el "Motor". Ejecuta el código y maneja los sockets a bajo nivel.
+// Bun.serve manages the raw TCP/HTTP handling.
 const server = Bun.serve<WebSocketData>({
   port: PORT,
   hostname: HOST,
 
-  // Hono tiene un método .fetch que es compatible 100% con Bun.
-  // Le pasamos el control de las peticiones HTTP a Hono.
-  fetch: (req, server) => {
-    const url = new URL(req.url);
-    // 1. Interceptamos upgrade a WebSocket
-    if (
-      url.pathname === "/ws" &&
-      server.upgrade(req, {
-        data: { createdAt: Date.now() },
-      })
-    ) {
-      return undefined; // Bun maneja el resto
-    }
+  // [ADAPTER] -> Hono Fetch Compatibility
+  // We allow Hono to handle EVERYTHING, including the rate-limited /ws route.
+  fetch: app.fetch,
 
-    // 2. Si no es WS, Hono se encarga
-    return app.fetch(req, server);
-  },
-
-  // Manejadores WebSocket (definidos en otro archivo para limpieza)
   websocket: websocketHandler,
 });
 
-// [CRÍTICO] -> Guardamos la referencia para poder hacer broadcast desde las rutas
+/**
+ * █ [CRITICAL] :: GLOBAL_REF_SETTER
+ * ---------------------------------------------------------
+ * Stores the Bun Server instance for external broadcasting.
+ */
 setServerRef(server);
 
 const baseUrl =
   HOST === "0.0.0.0" ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
-console.log(`🔥 Servidor Hono corriendo en ${baseUrl}`);
-console.log(
-  `🔥 Servidor WebSocket corriendo en ${baseUrl.replace("http", "ws")}/ws`,
-);
+
+console.log(`[SYS]   :: BOOT_HTTP     :: ${baseUrl}`);
+console.log(`[SYS]   :: BOOT_WS       :: ${baseUrl.replace("http", "ws")}/ws`);
