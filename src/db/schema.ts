@@ -1,8 +1,8 @@
 /**
- * █ [ESQUEMA_DB] :: TABLAS_BASE_DE_DATOS
+ * █ [CORE] :: DB_SCHEMA
  * =====================================================================
  * DESC:   Define el esquema de Postgres usando Drizzle ORM.
- * STATUS: ESTABLE
+ * STATUS: STABLE
  * =====================================================================
  */
 import {
@@ -16,7 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 // =============================================================================
-// █ ENUMS: TIPOS PERSONALIZADOS
+// █ ENUMS: CUSTOM TYPES
 // =============================================================================
 export const matchStatusEnum = pgEnum("match_status", [
   "scheduled",
@@ -25,10 +25,10 @@ export const matchStatusEnum = pgEnum("match_status", [
 ]);
 
 // =============================================================================
-// █ TABLAS: DEFINICIONES
+// █ TABLES: DEFINITIONS
 // =============================================================================
 
-// TABLA PARTIDOS -> Almacena datos generales del juego
+// MATCHES TABLE -> Almacena datos generales del juego
 export const matches = pgTable("matches", {
   id: serial("id").primaryKey(),
   sport: text("sport").notNull(),
@@ -42,7 +42,7 @@ export const matches = pgTable("matches", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// TABLA COMENTARIOS -> Almacena el minuto a minuto en tiempo real
+// COMMENTARY TABLE -> Almacena el minuto a minuto en tiempo real (Real-time logs)
 export const commentary = pgTable("commentary", {
   id: serial("id").primaryKey(),
   matchId: integer("match_id")

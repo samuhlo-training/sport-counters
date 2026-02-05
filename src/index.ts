@@ -1,8 +1,8 @@
 /**
  * █ [CORE] :: HTTP_ENTRY_POINT
  * =====================================================================
- * DESC:   Main entry point for Sport Counters Backend.
- *         Orchestrates Hono (Router), Bun (Server), and Upstash (Redis).
+ * DESC:   Punto de entrada principal para el Backend de Sport Counters.
+ *         Orquesta Hono (Router), Bun (Server) y Upstash (Redis).
  * STATUS: STABLE
  * =====================================================================
  */
@@ -17,7 +17,7 @@ import {
 } from "./ws/server.ts";
 
 // =============================================================================
-// █ CONFIG: ENVIRONMENT
+// █ CONFIG: ENTORNO
 // =============================================================================
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || "0.0.0.0";
@@ -25,15 +25,15 @@ const HOST = process.env.HOST || "0.0.0.0";
 // =============================================================================
 // █ INFRA: UPSTASH REDIS (RATE LIMITING)
 // =============================================================================
-// 1. CONNECTION CLIENT
+// 1. CLIENTE DE CONEXIÓN
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
 // 2. LIMITER STRATEGY (SLIDING WINDOW)
-// POLICY: 5 requests per 10 seconds per IP.
-// WHY:    Prevent abuse of WebSocket connections.
+// POLICY: 5 requests every 10 seconds per IP.
+// MOTIVO: Prevenir el abuso de conexiones WebSocket.
 const ratelimit = new Ratelimit({
   redis: redis,
   limiter: Ratelimit.slidingWindow(5, "10 s"),
@@ -47,7 +47,7 @@ const app = new Hono();
 // [MIDDLEWARE] -> Global Request Logger
 app.use("*", async (c, next) => {
   console.log(
-    `[HTTP]  :: REQ_IN        :: method: ${c.req.method} | path: ${c.req.url}`,
+    `[HTTP]  :: INCOMING_REQ  :: method: ${c.req.method} | path: ${c.req.url}`,
   );
   await next();
 });
@@ -55,37 +55,36 @@ app.use("*", async (c, next) => {
 /**
  * ◼️ MIDDLEWARE: RATE LIMITER PROTECTOR
  * ---------------------------------------------------------
- * Intercepts /ws requests to enforce rate limits before upgrade.
- * Strategy: Check IP against Redis.
+ * Intercepta peticiones /ws para aplicar límites antes del handshake.
+ * Estrategia: Verificar IP contra Redis.
  */
 app.use("/ws", async (c, next) => {
-  // A. IDENTIFY -> Get Client IP
-  // Fallback to 127.0.0.1 if localhost/headers missing
+  // A. IDENTIFICAR -> Obtener IP del cliente
+  // Fallback a 127.0.0.1 si falta la IP o los headers
   const ip =
     c.req.header("CF-Connecting-IP") ||
-    c.req.header("x-forwarded-for") ||
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
     "127.0.0.1";
 
-  // B. VERIFY -> Ask Redis for permission
+  // B. VERIFICAR -> Pedir permiso a Redis
   const { success, remaining } = await ratelimit.limit(ip);
 
-  // C. BLOCK -> Limit Exceeded
   if (!success) {
-    console.log(`[SEC]   :: RATE_LIMIT    :: ip: ${ip} | ACTION: BLOCKED`);
-    return c.text("ERROR: Rate limit exceeded. Chill out.", 429);
+    console.log(`[SEC]   :: RATE_LIMITED  :: ip: ${ip} | ACTION: BLOCKED`);
+    return c.text("ERROR: Rate limit exceeded. Relax.", 429);
   }
 
-  // D. ALLOW -> Proceed
-  // [DEBUG] -> Log allowed access (Optional: comment out for production)
+  // D. PERMITIR -> Continuar
+  // [DEBUG] -> Log allowed access (Optional: comment in production)
   // console.log(`[SEC]   :: ACCESS_OK     :: ip: ${ip} | remaining: ${remaining}`);
 
   await next();
 });
 
-// [ROUTES] -> Mount Sub-Apps
+// [RUTAS] -> Montar Sub-Aplicaciones
 app.route("/matches", matchesApp);
 
-// [HEALTH_CHECK]
+// [VITALIDAD] (HEALTH CHECK)
 app.get("/", (c) => {
   return c.json({
     status: "online",
@@ -97,16 +96,16 @@ app.get("/", (c) => {
 /**
  * ◼️ ENDPOINT: WEBSOCKET HANDSHAKE
  * ---------------------------------------------------------
- * This is the final destination for /ws requests.
- * 1. Middleware has already run (Rate Limit checked).
- * 2. We now upgrade the HTTP connection to a WebSocket.
+ * Destino final para las peticiones /ws.
+ * 1. El Middleware ya validó el Rate Limit.
+ * 2. Se procede al upgrade de HTTP a WebSocket.
  */
 app.get("/ws", (c) => {
-  // Bun.serve passes the 'server' instance as 'env' to Hono.
+  // Bun.serve pasa la instancia 'server' como 'env' a Hono.
   const server = c.env as unknown as import("bun").Server<WebSocketData>;
 
   if (server.upgrade(c.req.raw, { data: { createdAt: Date.now() } })) {
-    // Return empty response. Bun handles the socket upgrade natively.
+    // Return empty Response. Bun handles the native socket upgrade.
     return new Response(null);
   }
 
@@ -116,22 +115,23 @@ app.get("/ws", (c) => {
 // =============================================================================
 // █ CORE: BUN SERVER
 // =============================================================================
-// Bun.serve manages the raw TCP/HTTP handling.
+// Bun.serve maneja el tráfico bruto TCP/HTTP.
 const server = Bun.serve<WebSocketData>({
   port: PORT,
   hostname: HOST,
 
-  // [ADAPTER] -> Hono Fetch Compatibility
-  // We allow Hono to handle EVERYTHING, including the rate-limited /ws route.
+  // [FETCH_ADAPTER] -> Hono Compatibility
+  // Permitimos que Hono gestione TODO, incluyendo la ruta /ws protegida.
   fetch: app.fetch,
 
+  // WebSocket Handlers (definidos en ./ws/server.ts)
   websocket: websocketHandler,
 });
 
 /**
- * █ [CRITICAL] :: GLOBAL_REF_SETTER
+ * █ [CRITICAL] :: GLOBAL_SERVER_REFERENCE
  * ---------------------------------------------------------
- * Stores the Bun Server instance for external broadcasting.
+ * Almacena la instancia del servidor para broadcasting externo.
  */
 setServerRef(server);
 

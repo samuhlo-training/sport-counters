@@ -1,8 +1,8 @@
 /**
- * █ [CONFIG_DB] :: CONEXIÓN_POSTGRES
+ * █ [CORE] :: DB_CONFIG
  * =====================================================================
  * DESC:   Inicializa Drizzle ORM con el pool de Node-Postgres.
- * STATUS: ESTABLE
+ * STATUS: STABLE
  * =====================================================================
  */
 import "dotenv/config";
@@ -10,14 +10,14 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 // =============================================================================
-// █ NÚCLEO: CONFIGURACIÓN Y VALIDACIÓN
+// █ CORE: CONFIG & VALIDATION
 // =============================================================================
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL no está definida");
 }
 
 // =============================================================================
-// █ INSTANCIA: CONEXIÓN A BASE DE DATOS
+// █ INSTANCE: DATABASE CONNECTION
 // =============================================================================
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,

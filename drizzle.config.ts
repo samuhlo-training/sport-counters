@@ -1,8 +1,8 @@
 /**
- * █ [CONFIG] :: DRIZZLE_KIT_CONFIG
+ * █ [CORE] :: DRIZZLE_KIT_CONFIG
  * =====================================================================
  * DESC:   Configuración para las migraciones y herramientas de Drizzle.
- * STATUS: ESTABLE
+ * STATUS: STABLE
  * =====================================================================
  */
 import "dotenv/config";
