@@ -15,6 +15,7 @@ import {
   type WebSocketData,
   setServerRef,
 } from "./ws/server.ts";
+import { commentaryApp } from "./routes/commentary.ts";
 
 // =============================================================================
 // █ CONFIG: ENTORNO
@@ -104,6 +105,7 @@ app.use("/ws", async (c, next) => {
 
 // [RUTAS] -> Montar Sub-Aplicaciones
 app.route("/matches", matchesApp);
+app.route("/commentary", commentaryApp);
 
 // [VITALIDAD] (HEALTH CHECK)
 app.get("/", (c) => {
