@@ -55,8 +55,9 @@ const app = new Hono();
 
 // [MIDDLEWARE] -> Global Request Logger
 app.use("*", async (c, next) => {
+  const url = new URL(c.req.url);
   console.log(
-    `[HTTP]  :: INCOMING_REQ  :: method: ${c.req.method} | path: ${c.req.url}`,
+    `[HTTP]  :: INCOMING_REQ  :: method: ${c.req.method} | path: ${url.pathname}`,
   );
   await next();
 });

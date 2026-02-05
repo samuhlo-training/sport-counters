@@ -9,7 +9,7 @@
 import type { ServerWebSocket, Server } from "bun";
 
 export type WebSocketData = {
-  createdAt: number;
+  createdAt?: number;
   channelId?: string;
 };
 
@@ -75,7 +75,7 @@ export function getServerRef() {
 
 const matchSubscribers = new Map<string, Set<ServerWebSocket<WebSocketData>>>();
 
-function susbscribeToMatch(
+function subscribeToMatch(
   matchId: string,
   socket: ServerWebSocket<WebSocketData>,
 ) {
@@ -117,15 +117,15 @@ function broadcastToMatch(matchId: string, payload: any) {
  * Procesa mensajes específicos de un partido (suscripciones).
  * PROTOCOLO:
  * - SUBSCRIBE: Cliente quiere recibir eventos de un partido.
- * - UNSUBSCRIBE: Cliente deja de escuchar.
  */
 function handleMatchMessage(
   socket: ServerWebSocket<WebSocketData>,
-  data: unknown,
+  data: string | Buffer,
 ) {
   let message: any;
   try {
-    message = JSON.parse(data as string);
+    const text = typeof data === "string" ? data : data.toString();
+    message = JSON.parse(text);
   } catch (err) {
     console.error(`[WS]    :: JSON_PARSE_ERR ::`, err);
     sendJson(socket, {
@@ -138,7 +138,7 @@ function handleMatchMessage(
   // 1. SUSCRIPCIONES (SUBSCRIBE)
   if (message?.type === "SUBSCRIBE" && message?.matchId) {
     const matchId = String(message.matchId);
-    susbscribeToMatch(matchId, socket);
+    subscribeToMatch(matchId, socket);
     socket.subscribe(matchId); // Bun pub/sub
     sendJson(socket, {
       type: "SUBSCRIBED",

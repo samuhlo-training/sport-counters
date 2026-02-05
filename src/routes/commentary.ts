@@ -133,14 +133,14 @@ commentaryApp.post("/:id/commentary", async (c) => {
     // [REAL-TIME] -> Broadcast to subscribers
     // PATRÓN: Fire & Forget. No bloqueamos la respuesta HTTP si el WS falla.
     // Solo notificamos a los clientes suscritos a este partido específico.
-    try {
-      broadcastCommentary(String(matchId), newCommentary);
-    } catch (wsError) {
-      console.error(
-        `[WARN]  :: BROADCAST_FAIL       :: match: ${matchId}`,
-        wsError,
-      );
-    }
+    Promise.resolve(broadcastCommentary(String(matchId), newCommentary)).catch(
+      (wsError) => {
+        console.error(
+          `[WARN]  :: BROADCAST_FAIL       :: match: ${matchId}`,
+          wsError,
+        );
+      },
+    );
 
     return c.json({ data: newCommentary }, 201);
   } catch (error) {
