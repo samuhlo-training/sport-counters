@@ -26,9 +26,16 @@ const HOST = process.env.HOST || "0.0.0.0";
 // █ INFRA: UPSTASH REDIS (RATE LIMITING)
 // =============================================================================
 // 1. CLIENTE DE CONEXIÓN
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+if (!redisUrl || !redisToken) {
+  throw new Error("Missing Upstash Redis credentials");
+}
+
 const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  url: redisUrl,
+  token: redisToken,
 });
 
 // 2. LIMITER STRATEGY (SLIDING WINDOW)
