@@ -140,7 +140,15 @@ matchesApp.post("/", async (c) => {
     console.log(`[DB]    ++ SAVED         :: id: ${event.id}`);
 
     // 4. BROADCAST -> Magia en tiempo real (Real-time magic)
-    broadcastMatchCreated(event);
+    // Aislado para evitar que los fallos de transmisión interrumpan la solicitud después de la persistencia.
+    try {
+      broadcastMatchCreated(event);
+    } catch (broadcastError) {
+      console.error(
+        `[ERR]   :: BROADCAST_FAIL :: id: ${event.id}`,
+        broadcastError,
+      );
+    }
 
     return c.json({ data: event }, 201);
   } catch (error) {

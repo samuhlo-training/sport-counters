@@ -55,7 +55,16 @@ export async function syncMatchStatus(
   // [SAFETY_CHECK] -> Validación explícita antes de calcular
   if (!match.startTime || !match.endTime) {
     const isValid = Object.values(MATCH_STATUS).includes(match.status as any);
-    return isValid ? (match.status as MatchStatus) : MATCH_STATUS.SCHEDULED;
+
+    // [PERSISTENCIA] -> Si el estado es inválido o falta, forzamos SCHEDULED y guardamos
+    if (!isValid) {
+      const fallbackStatus = MATCH_STATUS.SCHEDULED;
+      await updateStatus(fallbackStatus);
+      // [MUTACIÓN] -> Actualizamos la referencia en memoria
+      (match as any).status = fallbackStatus;
+    }
+
+    return match.status as MatchStatus;
   }
 
   const nextStatus = getMatchStatus(match.startTime, match.endTime);

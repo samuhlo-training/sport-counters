@@ -20,7 +20,12 @@ if (!process.env.DATABASE_URL) {
 // █ INSTANCE: DATABASE CONNECTION
 // =============================================================================
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString:
+    process.env.DATABASE_URL +
+    (process.env.DATABASE_URL?.includes("?") ? "&" : "?") +
+    // [FIX]: PG WARNING -> 'uselibpqcompat=true' silencia warning de versiones futuras
+    // [SEC]: FORCE SSL  -> 'sslmode=require' asegura conexión encriptada (Neon/Cloud)
+    "sslmode=require&uselibpqcompat=true",
 });
 
 export const db = drizzle(pool);

@@ -33,6 +33,7 @@ if (!redisUrl || !redisToken) {
   throw new Error("Missing Upstash Redis credentials");
 }
 
+// 1. CLIENT CONNECTION
 const redis = new Redis({
   url: redisUrl,
   token: redisToken,
@@ -74,7 +75,20 @@ app.use("/ws", async (c, next) => {
     "127.0.0.1";
 
   // B. VERIFICAR -> Pedir permiso a Redis
-  const { success, remaining } = await ratelimit.limit(ip);
+  let limitResult;
+  try {
+    limitResult = await ratelimit.limit(ip);
+  } catch (error) {
+    console.error(
+      `[ERR]   :: RATELIMIT_FAIL :: ip: ${ip} | Fail-open applied`,
+      error,
+    );
+    // Fail-open: allow the request if rate limiting service is down
+    // [RESILIENCE] -> Si Redis falla, no bloqueamos el servicio (Fail-open)
+    limitResult = { success: true, remaining: Infinity };
+  }
+
+  const { success, remaining } = limitResult;
 
   if (!success) {
     console.log(`[SEC]   :: RATE_LIMITED  :: ip: ${ip} | ACTION: BLOCKED`);
