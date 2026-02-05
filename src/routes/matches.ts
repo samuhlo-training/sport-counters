@@ -1,8 +1,8 @@
 /**
  * █ [API_ROUTE] :: MATCHES_HANDLER (HONO EDITION)
  * =====================================================================
- * DESC:   Manages CRUD operations for matches.
- *         Refactored to use Hono Framework (Superior DX).
+ * DESC:   Gestiona operaciones CRUD para partidos.
+ *         Refactorizado para usar el Framework Hono (DX Superior).
  * STATUS: STABLE
  * =====================================================================
  */
@@ -20,29 +20,29 @@ import { broadcastMatchCreated } from "../ws/server.ts";
 /**
  * ◼️ HONO CONTEXT ('c')
  * ---------------------------------------------------------
- * In Hono, 'c' stands for Context. It replaces 'req' and 'res'.
- * It is the swiss-army knife of the framework:
- * - c.req  -> The Request object (headers, query, body)
- * - c.json -> Helper to return JSON responses type-safely
- * - c.text -> Helper to return text responses
- * - c.env  -> Environment variables defined in Hono
+ * En Hono, 'c' significa Context. Reemplaza a 'req' y 'res'.
+ * Es la navaja suiza (Swiss-army knife) del framework:
+ * - c.req  -> El objeto Request (headers, query, body)
+ * - c.json -> Helper para retornar respuestas JSON de forma segura
+ * - c.text -> Helper para retornar respuestas de texto
+ * - c.env  -> Variables de entorno definidas en Bun.serve (o Hono)
  */
 
 // =============================================================================
-// █ CONFIG: HONO MIN-APP
+// █ CONFIG: HONO MINI-APP
 // =============================================================================
 export const matchesApp = new Hono();
 
-// [CONST] -> Hard limit to prevent DB overload
+// [CONST] -> MAX_LIMIT estricto para prevenir sobrecarga de la DB
 const MAX_LIMIT = 100;
 
 // =============================================================================
 // █ ENDPOINT: GET /
 // =============================================================================
-// DESC: List matches via query params.
+// DESC: Listar partidos mediante parámetros de consulta.
 matchesApp.get("/", async (c) => {
   // 1. VALIDATION
-  // c.req.query() returns a simple object. Zod validates it.
+  // c.req.query() devuelve un objeto simple. Zod lo valida.
   const parsed = listMatchesQuerySchema.safeParse(c.req.query());
 
   if (!parsed.success) {
@@ -69,11 +69,11 @@ matchesApp.get("/", async (c) => {
 
     // [SUCCESS] -> Log retrieval
     // console.log(`[DB]    ++ FETCHED       :: count: ${data.length}`);
-    // ^ Commented out to avoid noise, enable if needed.
+    // ^ Comentado para evitar ruido, habilitar si es necesario.
 
     return c.json({ data });
   } catch (error) {
-    console.error(`[ERR]   :: DB_QUERY      :: ${error}`);
+    console.error(`[ERR]   :: DB_QUERY_ERR  :: ${error}`);
     return c.json({ error: "Internal Server Error" }, 500);
   }
 });
@@ -82,12 +82,10 @@ matchesApp.get("/", async (c) => {
 // █ ENDPOINT: POST /
 // =============================================================================
 matchesApp.post("/", async (c) => {
-  // [START] -> Request processing
+  // [START] -> Processing Request
 
   // 1. BODY VALIDATION
-  // "await c.req.json()" is the modern way to get body content.
-  // 1. BODY VALIDATION
-  // "await c.req.json()" is the modern way to get body content.
+  // "await c.req.json()" es la forma moderna de obtener el JSON Body.
   let body;
   try {
     body = await c.req.json();
@@ -112,7 +110,7 @@ matchesApp.post("/", async (c) => {
   const { startTime, endTime, homeScore, awayScore, ...matchData } =
     result.data;
 
-  // 2. BUSINESS RULE -> Server-side status calculation
+  // 2. BUSINESS RULE -> Cálculo del estado en el servidor
   const calculatedStatus = getMatchStatus(startTime, endTime);
 
   if (!calculatedStatus) {
@@ -141,12 +139,20 @@ matchesApp.post("/", async (c) => {
 
     console.log(`[DB]    ++ SAVED         :: id: ${event.id}`);
 
-    // 4. BROADCAST -> Real-time magic
-    broadcastMatchCreated(event);
+    // 4. BROADCAST -> Magia en tiempo real (Real-time magic)
+    // Aislado para evitar que los fallos de transmisión interrumpan la solicitud después de la persistencia.
+    try {
+      broadcastMatchCreated(event);
+    } catch (broadcastError) {
+      console.error(
+        `[ERR]   :: BROADCAST_FAIL :: id: ${event.id}`,
+        broadcastError,
+      );
+    }
 
     return c.json({ data: event }, 201);
   } catch (error) {
-    console.error(`[ERR]   :: CREATE_MATCH  :: ${error}`);
+    console.error(`[ERR]   :: CREATE_MATCH_ERR :: ${error}`);
     return c.json({ error: "Internal Server Error" }, 500);
   }
 });

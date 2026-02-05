@@ -1,19 +1,19 @@
 /**
- * █ [UTILS] :: ESTADO_PARTIDO
+ * █ [UTILS] :: MATCH_STATUS_LOGIC
  * =====================================================================
  * DESC:   Lógica pura para determinar el estado de un partido basado
  *         en el tiempo. Centraliza esta regla de negocio crítica.
- * STATUS: ESTABLE
+ * STATUS: STABLE
  * =====================================================================
  */
 import { MATCH_STATUS } from "../validation/matches.ts";
 import type { Match, MatchStatus } from "../types/matches.ts";
 
 /**
- * ◼️ CALCULAR ESTADO
+ * ◼️ CALCULATE_STATUS
  * ---------------------------------------------------------
  * Compara fecha actual vs start/end para devolver el estado.
- * ES PURA: No tiene efectos secundarios, solo calcula.
+ * PURE_FUNCTION: No tiene efectos secundarios, solo calcula.
  */
 export function getMatchStatus(
   startTime: Date | string,
@@ -23,7 +23,7 @@ export function getMatchStatus(
   const start = new Date(startTime);
   const end = new Date(endTime);
 
-  // [SAFETY] -> Validación preventiva de fechas inválidas
+  // [SAFETY_CHECK] -> Validación preventiva de fechas inválidas
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return null;
   }
@@ -43,7 +43,7 @@ export function getMatchStatus(
 }
 
 /**
- * ◼️ SINCRONIZAR ESTADO (MUTABLE / ASYNC)
+ * ◼️ SYNC_STATUS (MUTABLE / ASYNC)
  * ---------------------------------------------------------
  * Actualiza el estado de un objeto Match si ha cambiado.
  * Útil para workers o crons que revisan partidos en vivo.
@@ -52,8 +52,18 @@ export async function syncMatchStatus(
   match: Match,
   updateStatus: (status: MatchStatus) => Promise<void>,
 ): Promise<MatchStatus> {
-  // [SAFETY] -> Validación explícita antes de calcular
+  // [SAFETY_CHECK] -> Validación explícita antes de calcular
   if (!match.startTime || !match.endTime) {
+    const isValid = Object.values(MATCH_STATUS).includes(match.status as any);
+
+    // [PERSISTENCIA] -> Si el estado es inválido o falta, forzamos SCHEDULED y guardamos
+    if (!isValid) {
+      const fallbackStatus = MATCH_STATUS.SCHEDULED;
+      await updateStatus(fallbackStatus);
+      // [MUTACIÓN] -> Actualizamos la referencia en memoria
+      (match as any).status = fallbackStatus;
+    }
+
     return match.status as MatchStatus;
   }
 
@@ -64,11 +74,11 @@ export async function syncMatchStatus(
     return match.status as MatchStatus;
   }
 
-  // [OPTIMIZACIÓN] -> Solo actualizamos si hubo cambio real
+  // [OPTIMIZATION] -> Solo actualizamos si hubo cambio real
   if (match.status !== nextStatus) {
     await updateStatus(nextStatus);
 
-    // [MUTACIÓN] -> Actualizamos la referencia en memoria para consistencia inmediata
+    // [MUTATION] -> Actualizamos la referencia en memoria para consistencia inmediata
     (match as any).status = nextStatus;
   }
   return match.status as MatchStatus;

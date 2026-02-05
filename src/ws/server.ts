@@ -1,8 +1,8 @@
 /**
  * █ [CORE] :: WEBSOCKET_SERVER
  * =====================================================================
- * DESC:   Manages real-time connections, events, and broadcasting.
- *         Uses Bun's native WebSocket implementation.
+ * DESC:   Gestiona conexiones en tiempo real, eventos y broadcasting.
+ *         Utiliza la implementación nativa de WebSockets de Bun.
  * STATUS: STABLE
  * =====================================================================
  */
@@ -18,18 +18,18 @@ export type WebSocketData = {
 // =============================================================================
 export const websocketHandler = {
   /**
-   * ◼️ SOCKET OPEN
+   * ◼️ OPEN SOCKET
    * ---------------------------------------------------------
-   * Triggered when a new client connects.
-   * Actions: Log connection, subscribe to global channel, send welcome.
+   * Se activa cuando un nuevo cliente se conecta.
+   * Acciones: Log connection, subscribe to global channel, send welcome.
    */
   open(ws: ServerWebSocket<WebSocketData>) {
     console.log(`[WS]    :: CONNECTED     :: ip: ${ws.remoteAddress}`);
 
-    // SUBSCRIBE -> Add to global broadcast channel
+    // SUBSCRIBE -> Añadir al canal de broadcast global
     ws.subscribe("global");
 
-    // ACKNOWLEDGE -> Immediate feedback for the client
+    // ACKNOWLEDGE -> Feedback inmediato para el cliente
     sendJson(ws, {
       type: "WELCOME",
       payload: "Conectado a Sport Counters Real-Time API",
@@ -37,7 +37,7 @@ export const websocketHandler = {
   },
 
   message(ws: ServerWebSocket<WebSocketData>, message: string | Buffer) {
-    // [DEBUG] -> Log message receipt (content omitted for privacy)
+    // [DEBUG] -> Log message receipt (contenido omitido por privacidad)
     const msgPreview =
       typeof message === "string"
         ? `${message.slice(0, 50)}${message.length > 50 ? "..." : ""}`
@@ -54,9 +54,9 @@ export const websocketHandler = {
 // =============================================================================
 // █ GLOBAL STATE: SERVER REFERENCE
 // =============================================================================
-// [SINGLETON PATTERN] -> Why?
-// Hono routes handle HTTP, but Bun logic handles WS broadcasting.
-// We store the Bun Server instance here to access it from anywhere.
+// [SINGLETON PATTERN] -> ¿Por qué?
+// Las rutas de Hono manejan HTTP, pero la lógica de Bun gestiona el WS Broadcasting.
+// Almacenamos la instancia del servidor Bun aquí para acceso global.
 let serverRef: Server<WebSocketData> | null = null;
 
 export function setServerRef(server: Server<WebSocketData>) {
@@ -76,8 +76,12 @@ export function getServerRef() {
 // =============================================================================
 export function broadcastJson(topic: string, payload: any) {
   const server = getServerRef();
-  // .publish() is Bun's optimized C++ broadcasting method
-  server.publish(topic, JSON.stringify(payload));
+  // .publish() es el método de broadcasting de Bun optimizado en C++
+  try {
+    server.publish(topic, JSON.stringify(payload));
+  } catch (err) {
+    console.error(`[WS]    :: BROADCAST_ERR :: topic: ${topic}`, err);
+  }
 }
 
 // =============================================================================
@@ -87,19 +91,32 @@ export function broadcastJson(topic: string, payload: any) {
 /**
  * ◼️ SEND JSON
  * ---------------------------------------------------------
- * Wrapper to send type-safe JSON payloads to a specific client.
+ * Wrapper para enviar JSON payloads de forma segura a un cliente específico.
  */
 export function sendJson(ws: ServerWebSocket<WebSocketData>, payload: any) {
-  ws.send(JSON.stringify(payload));
+  try {
+    const data = JSON.stringify(payload);
+    return ws.send(data);
+  } catch (error) {
+    const logger = (ws as any).logger || console;
+    logger.error(`[ERR]   :: JSON_SEND_ERR :: Serialization failed`, {
+      payload,
+      error,
+    });
+    return 0;
+  }
 }
 
 /**
  * ◼️ BROADCAST MATCH CREATED
  * ---------------------------------------------------------
- * Domain-specific event notification.
- * Targets: ALL clients ("global" channel).
+ * Notificación de evento específica del dominio.
+ * Targets: TODOS los clientes (canal "global").
  */
 export function broadcastMatchCreated(match: any) {
+  if (!match?.id) {
+    throw new Error("[ERR]   :: MATCH_MISSING :: Match not initialized");
+  }
   console.log(
     `[WS]    -> BROADCAST     :: event: MATCH_CREATED | id: ${match.id}`,
   );

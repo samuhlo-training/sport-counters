@@ -59,7 +59,6 @@ bun run dev
 ```
 
 ### 03 __ CARACTERÍSTICAS CLAVE
-### 03 __ CARACTERÍSTICAS CLAVE
 
 *   **Rendimiento Nativo**: Construido sobre `Bun.serve` y WebSockets optimizados en C++.
 *   **Real-Time Broadcasting**: Abstracciones limpias para comunicación en tiempo real.

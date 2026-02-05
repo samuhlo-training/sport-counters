@@ -3,7 +3,7 @@
  * =====================================================================
  * DESC:   Tipos centrales de TypeScript inferidos de la BD y Zod.
  *         Evita duplicar definiciones manuales (Single Source of Truth).
- * STATUS: ESTABLE
+ * STATUS: STABLE
  * =====================================================================
  */
 import { type InferSelectModel, type InferInsertModel } from "drizzle-orm";
@@ -17,7 +17,7 @@ import {
 import { MATCH_STATUS } from "../validation/matches.ts";
 
 // =============================================================================
-// █ MODELOS DE BASE DE DATOS (DRIZZLE)
+// █ DATABASE_MODELS (DRIZZLE ORM)
 // =============================================================================
 
 /**
@@ -43,7 +43,7 @@ export type Commentary = InferSelectModel<typeof commentary>;
 export type NewCommentary = InferInsertModel<typeof commentary>;
 
 // =============================================================================
-// █ DTOs DE LA API (ZOD INFERRED)
+// █ API_DTOs (ZOD INFERRED)
 // =============================================================================
 
 /**
@@ -62,7 +62,7 @@ export type UpdateScoreInput = z.infer<typeof updateScoreSchema>;
 export type ListMatchesQuery = z.infer<typeof listMatchesQuerySchema>;
 
 // =============================================================================
-// █ TIPOS DE DOMINIO
+// █ DOMAIN_TYPES
 // =============================================================================
 
 /**
