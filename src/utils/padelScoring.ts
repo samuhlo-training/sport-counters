@@ -251,7 +251,7 @@ export class PadelEngine {
   private static calculateFlags(current: MatchSnapshot) {
     // [ANALYSIS] -> Calcula isGamePoint, isSetPoint, etc.
     let isGamePoint = false;
-    let gamePointOwner: "pair_a" | "pair_b" | null = null;
+    let gamePointOwner: "pair_a" | "pair_b" | "both" | null = null;
 
     const sa = current.pairAScore;
     const sb = current.pairBScore;
@@ -275,10 +275,9 @@ export class PadelEngine {
       const isDeuce = sa === "40" && sb === "40";
 
       if (current.hasGoldPoint && isDeuce) {
-        // [GOLDEN POINT] -> Ambos tienen game point, pero no podemos determinar owner
-        // hasta que se anote el punto. Marcamos como game point pero sin owner.
+        // [GOLDEN POINT] -> Ambos tienen game point
         isGamePoint = true;
-        gamePointOwner = null;
+        gamePointOwner = "both";
       } else {
         // Determinar quién tiene game point
         const gpA = (sa === "40" && sb !== "40" && sb !== "AD") || sa === "AD";
@@ -297,35 +296,36 @@ export class PadelEngine {
     let isSetPoint = false;
     let isMatchPoint = false;
 
-    // [SET POINT] -> Solo si el que tiene game point puede ganar el set
+    // [SET/MATCH POINT] -> Lógica de detección
     if (isGamePoint && gamePointOwner) {
       const gamesA = current.pairAGames;
       const gamesB = current.pairBGames;
+      const setsA = current.pairASets;
+      const setsB = current.pairBSets;
 
-      if (gamePointOwner === "pair_a") {
-        // Pair A necesita: >= 5 juegos Y (ventaja sobre B O llegar a 6)
-        // Casos válidos: 5-4, 5-3, 6-5, etc.
-        if (gamesA >= 5 && (gamesA > gamesB || gamesA === 6)) {
+      const checkSide = (side: "pair_a" | "pair_b") => {
+        const myGames = side === "pair_a" ? gamesA : gamesB;
+        const otherGames = side === "pair_a" ? gamesB : gamesA;
+        const mySets = side === "pair_a" ? setsA : setsB;
+
+        // ¿Puede ganar el set con este punto?
+        const canWinSet =
+          myGames >= 5 && (myGames > otherGames || myGames === 6);
+
+        if (canWinSet) {
           isSetPoint = true;
+          // ¿Puede ganar el partido con este punto?
+          if (mySets >= 1) {
+            isMatchPoint = true;
+          }
         }
-      } else if (gamePointOwner === "pair_b") {
-        if (gamesB >= 5 && (gamesB > gamesA || gamesB === 6)) {
-          isSetPoint = true;
-        }
-      }
+      };
 
-      // [MATCH POINT] -> Solo si el que tiene set point también puede ganar el partido
-      if (isSetPoint) {
-        const setsA = current.pairASets;
-        const setsB = current.pairBSets;
-
-        // En un Best of 3, necesitas 2 sets para ganar
-        // Match point ocurre cuando estás a 1 set de ganar (1-0, 1-1)
-        if (gamePointOwner === "pair_a" && setsA >= 1) {
-          isMatchPoint = true;
-        } else if (gamePointOwner === "pair_b" && setsB >= 1) {
-          isMatchPoint = true;
-        }
+      if (gamePointOwner === "both") {
+        checkSide("pair_a");
+        checkSide("pair_b");
+      } else {
+        checkSide(gamePointOwner);
       }
     }
 

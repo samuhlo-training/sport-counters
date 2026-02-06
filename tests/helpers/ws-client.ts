@@ -39,6 +39,8 @@ export class TestWSClient {
       this.ws = new WebSocket(this.url);
 
       const timeoutId = setTimeout(() => {
+        this.ws?.close();
+        this.ws = null;
         reject(new Error("WebSocket connection timeout"));
       }, timeout);
 
@@ -108,6 +110,13 @@ export class TestWSClient {
         if (!filter || filter(msg)) {
           clearTimeout(timeoutId);
           this.removeListener(type, listener);
+
+          // Remover el mensaje de la cola compartida para evitar que sea consumido de nuevo
+          const index = this.messageQueue.indexOf(msg);
+          if (index !== -1) {
+            this.messageQueue.splice(index, 1);
+          }
+
           resolve(msg);
         }
       };

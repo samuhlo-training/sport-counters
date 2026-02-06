@@ -142,7 +142,14 @@ matchesApp.post("/", async (c) => {
         playerId,
       }));
 
-      await tx.insert(matchStats).values(uniqueStatsArray);
+      // E. Init Stats (only if we have players)
+      if (uniqueStatsArray.length > 0) {
+        await tx.insert(matchStats).values(uniqueStatsArray);
+      } else {
+        console.warn(
+          `[DB]    :: SKIP_STATS    :: No unique players to initialize for match ${match.id}`,
+        );
+      }
 
       return match;
     });

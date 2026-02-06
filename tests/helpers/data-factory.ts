@@ -201,8 +201,8 @@ export async function createTestMatchSets(
     setNumber: result.setNumber,
     pairAGames: result.pairAGames,
     pairBGames: result.pairBGames,
-    tieBreakPairAPoints: result.tieBreak?.pairA || null,
-    tieBreakPairBPoints: result.tieBreak?.pairB || null,
+    tieBreakPairAPoints: result.tieBreak?.pairA ?? null,
+    tieBreakPairBPoints: result.tieBreak?.pairB ?? null,
   }));
 
   return await db.insert(matchSets).values(setsData).returning();

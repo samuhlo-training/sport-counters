@@ -237,8 +237,16 @@ describe("WebSocket Snapshot Verification", () => {
     // Ambos clientes deben recibir la actualización
     await delay(100);
 
-    const update1 = await client1.waitForMessage("MATCH_UPDATE");
-    const update2 = await client2.waitForMessage("MATCH_UPDATE");
+    const update1 = await client1.waitForMessage(
+      "MATCH_UPDATE",
+      5000,
+      (m) => m.snapshot.pairAScore === "15",
+    );
+    const update2 = await client2.waitForMessage(
+      "MATCH_UPDATE",
+      5000,
+      (m) => m.snapshot.pairAScore === "15",
+    );
 
     expect(update1.snapshot.pairAScore).toBe("15");
     expect(update2.snapshot.pairAScore).toBe("15");

@@ -11,31 +11,38 @@ import { setServerRef } from "../../src/ws/server";
 import type { Server } from "bun";
 
 let testServer: Server | null = null;
+let startTestServerPromise: Promise<Server> | null = null;
 const TEST_PORT = 8000;
 
 /**
- * Inicia servidor de test
+ * Inicia servidor de test con un guardia de promesa para evitar condiciones de carrera
  */
 export async function startTestServer(): Promise<Server> {
-  if (testServer) {
-    return testServer;
-  }
+  // 1. Si ya existe el servidor, devolverlo
+  if (testServer) return testServer;
 
-  testServer = Bun.serve({
-    port: TEST_PORT,
-    fetch: app.fetch,
-    websocket: websocketHandler,
-  });
+  // 2. Si ya hay una inicialización en curso, esperarla
+  if (startTestServerPromise) return startTestServerPromise;
 
-  // Registrar server en el módulo WS
-  setServerRef(testServer);
+  // 3. Iniciar secuencia de arranque
+  startTestServerPromise = (async () => {
+    try {
+      testServer = Bun.serve({
+        port: TEST_PORT,
+        fetch: app.fetch,
+        websocket: websocketHandler,
+      });
 
-  console.log(`✅ Test server started on http://localhost:${TEST_PORT}`);
+      setServerRef(testServer);
+      console.log(`✅ Test server started on http://localhost:${TEST_PORT}`);
+      return testServer;
+    } finally {
+      // Limpiar la promesa tanto si tiene éxito como si falla
+      startTestServerPromise = null;
+    }
+  })();
 
-  // Dar tiempo para que el servidor se inicialice
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  return testServer;
+  return startTestServerPromise;
 }
 
 /**
@@ -45,6 +52,7 @@ export async function stopTestServer(): Promise<void> {
   if (testServer) {
     testServer.stop();
     testServer = null;
+    setServerRef(null);
     console.log(`🛑 Test server stopped`);
   }
 }
