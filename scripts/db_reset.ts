@@ -10,6 +10,12 @@ import { sql } from "drizzle-orm";
  * =====================================================================
  */
 async function resetDatabase() {
+  const env = process.env.NODE_ENV || process.env.APP_ENV;
+  if (env === "production") {
+    console.error("❌ ABORTED: Cannot run db_reset in production environment.");
+    process.exit(1);
+  }
+
   console.log("🧨 STARTING HARD DATABASE RESET...");
 
   try {
@@ -31,9 +37,10 @@ async function resetDatabase() {
     console.log("   - Schema 'public' dropped and recreated.");
   } catch (error) {
     console.error("❌ RESET FAILED:", error);
+    await db.$client.end?.();
     process.exit(1);
   }
-
+  await db.$client.end?.();
   process.exit(0);
 }
 

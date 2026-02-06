@@ -20,7 +20,7 @@ export const createCommentarySchema = z.object({
   gameNumber: z.coerce.number().int().min(1).optional(),
 
   // [CONTENT] -> El mensaje visible. Mínimo 1 caracter.
-  message: z.string().min(1),
+  message: z.string().trim().min(1).max(5000),
 
   // [TAGS] -> Etiquetas para filtrado (ej: "GOLAZO", "POLEMICA")
   tags: z.array(z.string()).optional(),

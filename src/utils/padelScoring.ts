@@ -166,7 +166,18 @@ export class PadelEngine {
     // En Tie-break los puntos son enteros simples
     const currentPoints =
       parseInt(scorer === "pair_a" ? state.pairAScore : state.pairBScore) || 0;
-    this.setScore(state, scorer, (currentPoints + 1).toString());
+    const newPoints = currentPoints + 1;
+    this.setScore(state, scorer, newPoints.toString());
+
+    // Check if tie-break is won (≥7 points with 2+ lead)
+    const otherPoints =
+      parseInt(receiver === "pair_a" ? state.pairAScore : state.pairBScore) ||
+      0;
+    if (newPoints >= 7 && newPoints - otherPoints >= 2) {
+      // Increment games to reflect 7-6 final score
+      if (scorer === "pair_a") state.pairAGames++;
+      else state.pairBGames++;
+    }
   }
 
   private static winGame(state: MatchSnapshot, side: "pair_a" | "pair_b") {
@@ -202,20 +213,25 @@ export class PadelEngine {
       const pA = parseInt(state.pairAScore);
       const pB = parseInt(state.pairBScore);
       const diff = Math.abs(pA - pB);
-      // Tie break a 7, diferencia de 2
+      // Tie break: mínimo 7 puntos con diferencia de 2
       if (side === "pair_a" && pA >= 7 && diff >= 2) return true;
       if (side === "pair_b" && pB >= 7 && diff >= 2) return true;
       return false;
     }
 
-    // Set Estándar
+    // Set Estándar - Victoria en Pádel
     const myGames = side === "pair_a" ? gamesA : gamesB;
     const otherGames = side === "pair_a" ? gamesB : gamesA;
 
-    // 6-0, 6-1, ... 6-4
-    if (myGames === 6 && otherGames <= 4) return true;
-    // 7-5 (Evita tie-break)
+    // Caso 1: Ganar 6 juegos con rival entre 0-4 (6-0, 6-1, 6-2, 6-3, 6-4)
+    if (myGames >= 6 && otherGames <= 4) return true;
+
+    // Caso 2: Ganar 7-5 (cuando hay empate 5-5, se juega hasta ganar por diferencia de 2)
     if (myGames === 7 && otherGames === 5) return true;
+
+    // Caso 3: Ganar en tie-break (7-6) - esto se maneja arriba con isTieBreak
+    // pero por si acaso el flag no está actualizado, verificamos también aquí
+    if (myGames === 7 && otherGames === 6) return true;
 
     return false;
   }
@@ -235,39 +251,82 @@ export class PadelEngine {
   private static calculateFlags(current: MatchSnapshot) {
     // [ANALYSIS] -> Calcula isGamePoint, isSetPoint, etc.
     let isGamePoint = false;
+    let gamePointOwner: "pair_a" | "pair_b" | null = null;
+
     const sa = current.pairAScore;
     const sb = current.pairBScore;
 
     if (current.isTieBreak) {
       const pa = parseInt(sa) || 0;
       const pb = parseInt(sb) || 0;
+
+      // En tie-break, determinar quién tiene game point
       const gpA = pa >= 6 && pa - pb >= 1;
       const gpB = pb >= 6 && pb - pa >= 1;
-      isGamePoint = gpA || gpB;
+
+      if (gpA) {
+        gamePointOwner = "pair_a";
+        isGamePoint = true;
+      } else if (gpB) {
+        gamePointOwner = "pair_b";
+        isGamePoint = true;
+      }
     } else {
       const isDeuce = sa === "40" && sb === "40";
 
       if (current.hasGoldPoint && isDeuce) {
-        isGamePoint = true; // Siguiente punto gana
+        // [GOLDEN POINT] -> Ambos tienen game point, pero no podemos determinar owner
+        // hasta que se anote el punto. Marcamos como game point pero sin owner.
+        isGamePoint = true;
+        gamePointOwner = null;
       } else {
+        // Determinar quién tiene game point
         const gpA = (sa === "40" && sb !== "40" && sb !== "AD") || sa === "AD";
         const gpB = (sb === "40" && sa !== "40" && sa !== "AD") || sb === "AD";
-        isGamePoint = gpA || gpB;
+
+        if (gpA) {
+          gamePointOwner = "pair_a";
+          isGamePoint = true;
+        } else if (gpB) {
+          gamePointOwner = "pair_b";
+          isGamePoint = true;
+        }
       }
     }
 
     let isSetPoint = false;
     let isMatchPoint = false;
 
-    if (isGamePoint) {
+    // [SET POINT] -> Solo si el que tiene game point puede ganar el set
+    if (isGamePoint && gamePointOwner) {
       const gamesA = current.pairAGames;
-      const gamesB = current.pairBGames; // Fixed: was using gamesA logic for B check implicity?
+      const gamesB = current.pairBGames;
 
-      // Aproximación simple: Si alguien tiene 5 juegos, huele a Set Point.
-      if (gamesA >= 5 || gamesB >= 5) isSetPoint = true;
+      if (gamePointOwner === "pair_a") {
+        // Pair A necesita: >= 5 juegos Y (ventaja sobre B O llegar a 6)
+        // Casos válidos: 5-4, 5-3, 6-5, etc.
+        if (gamesA >= 5 && (gamesA > gamesB || gamesA === 6)) {
+          isSetPoint = true;
+        }
+      } else if (gamePointOwner === "pair_b") {
+        if (gamesB >= 5 && (gamesB > gamesA || gamesB === 6)) {
+          isSetPoint = true;
+        }
+      }
 
-      // Si es Set Point y estamos en el 2do o 3er set... Huele a Match Point.
-      if (isSetPoint && current.currentSetIdx >= 2) isMatchPoint = true;
+      // [MATCH POINT] -> Solo si el que tiene set point también puede ganar el partido
+      if (isSetPoint) {
+        const setsA = current.pairASets;
+        const setsB = current.pairBSets;
+
+        // En un Best of 3, necesitas 2 sets para ganar
+        // Match point ocurre cuando estás a 1 set de ganar (1-0, 1-1)
+        if (gamePointOwner === "pair_a" && setsA >= 1) {
+          isMatchPoint = true;
+        } else if (gamePointOwner === "pair_b" && setsB >= 1) {
+          isMatchPoint = true;
+        }
+      }
     }
 
     return { isGamePoint, isSetPoint, isMatchPoint };

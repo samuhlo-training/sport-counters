@@ -140,10 +140,13 @@ commentaryApp.post("/:id/commentary", async (c) => {
     const [newCommentary] = await db
       .insert(commentary)
       .values({
-        ...commentaryData,
         matchId,
-        setNumber: existingMatch.set,
-        gameNumber: currentGameNumber,
+        message: commentaryData.message,
+        tags: commentaryData.tags,
+        // Solo asignar si el usuario los proveyó explícitamente
+        // Comentarios generales pueden no tener set/game específico
+        setNumber: commentaryData.setNumber ?? null,
+        gameNumber: commentaryData.gameNumber ?? null,
       })
       .returning();
 
@@ -156,15 +159,12 @@ commentaryApp.post("/:id/commentary", async (c) => {
 
     // 5. REAL-TIME BROADCAST
     // [WS] -> Enviamos el comentario a todos los suscritos a este partido.
-    // Usamos Promise.resolve().catch(...) para que un fallo de red NO cancele la respuesta HTTP.
-    Promise.resolve(broadcastCommentary(String(matchId), newCommentary)).catch(
-      (wsError) => {
-        console.error(
-          `[WARN]  :: BROADCAST_FAIL       :: match: ${matchId}`,
-          wsError,
-        );
-      },
-    );
+    // Usamos Promise.resolve().then(...).catch(...) para capturar tanto errores síncronos como asíncronos.
+    Promise.resolve()
+      .then(() => broadcastCommentary(String(matchId), newCommentary))
+      .catch((wsError) => {
+        console.warn(`[WARN]  :: BCAST_FAIL    :: match: ${matchId}`, wsError);
+      });
 
     return c.json({ data: newCommentary }, 201);
   } catch (error) {

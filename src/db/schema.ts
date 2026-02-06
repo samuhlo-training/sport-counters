@@ -15,6 +15,7 @@ import {
   boolean,
   index,
   jsonb, // Necesario para metadatos extra si hacen falta
+  unique,
   varchar, // Added for matchType
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -30,7 +31,6 @@ export const matchStatusEnum = pgEnum("match_status", [
   "canceled",
 ]);
 
-// Enum para saber CÓMO se ganó el punto (¡Esto da estadísticas brutales!)
 // Enum para saber CÓMO se ganó el punto (¡Esto da estadísticas brutales!)
 export const pointMethodEnum = pgEnum("point_method", [
   "winner",
@@ -99,6 +99,8 @@ export const matches = pgTable(
     currentSetIdx: integer("current_set_idx").default(1),
     pairAGames: integer("pair_a_games").default(0),
     pairBGames: integer("pair_b_games").default(0),
+    pairASets: integer("pair_a_sets").default(0),
+    pairBSets: integer("pair_b_sets").default(0),
     pairAScore: text("pair_a_score").default("0"),
     pairBScore: text("pair_b_score").default("0"),
 
@@ -138,7 +140,6 @@ export const pointHistory = pgTable("point_history", {
   winnerPlayerId: integer("winner_player_id").references(() => players.id), // Opcional, si sabemos quién fue
 
   // ¿Cómo fue? (Estadísticas)
-  // ¿Cómo fue? (Estadísticas)
   method: pointMethodEnum("method").default("winner"),
   stroke: padelStrokeEnum("stroke"), // Nuevo: Tipo de golpe
   isNetPoint: boolean("is_net_point").default(false), // Nuevo: ¿Fue en la red?
@@ -176,32 +177,48 @@ export const commentary = pgTable("commentary", {
 });
 
 // 5. MATCH SETS (Resultados finales de cada set)
-export const matchSets = pgTable("match_sets", {
-  id: serial("id").primaryKey(),
-  matchId: integer("match_id")
-    .references(() => matches.id)
-    .notNull(),
-  setNumber: integer("set_number").notNull(),
-  pairAGames: integer("pair_a_games").notNull(),
-  pairBGames: integer("pair_b_games").notNull(),
-  tieBreakPairAPoints: integer("tie_break_pair_a_points"),
-  tieBreakPairBPoints: integer("tie_break_pair_b_points"),
-});
+export const matchSets = pgTable(
+  "match_sets",
+  {
+    id: serial("id").primaryKey(),
+    matchId: integer("match_id")
+      .references(() => matches.id)
+      .notNull(),
+    setNumber: integer("set_number").notNull(),
+    pairAGames: integer("pair_a_games").notNull(),
+    pairBGames: integer("pair_b_games").notNull(),
+    tieBreakPairAPoints: integer("tie_break_pair_a_points"),
+    tieBreakPairBPoints: integer("tie_break_pair_b_points"),
+  },
+  (table) => ({
+    match_sets_match_id_set_number_unique: unique(
+      "match_sets_match_id_set_number_unique",
+    ).on(table.matchId, table.setNumber),
+  }),
+);
 
-// 6. MATCH STATS (Acumulados por jugador)
-export const matchStats = pgTable("match_stats", {
-  id: serial("id").primaryKey(),
-  matchId: integer("match_id")
-    .references(() => matches.id)
-    .notNull(),
-  playerId: integer("player_id")
-    .references(() => players.id)
-    .notNull(),
-  pointsWon: integer("points_won").default(0),
-  winners: integer("winners").default(0),
-  unforcedErrors: integer("unforced_errors").default(0),
-  smashWinners: integer("smash_winners").default(0),
-});
+// 6. MATCH STATS (Estadísticas por jugador y partido)
+export const matchStats = pgTable(
+  "match_stats",
+  {
+    id: serial("id").primaryKey(),
+    matchId: integer("match_id")
+      .references(() => matches.id)
+      .notNull(),
+    playerId: integer("player_id")
+      .references(() => players.id)
+      .notNull(),
+    pointsWon: integer("points_won").default(0),
+    winners: integer("winners").default(0),
+    unforcedErrors: integer("unforced_errors").default(0),
+    smashWinners: integer("smash_winners").default(0),
+  },
+  (table) => ({
+    match_stats_match_player_unique: unique(
+      "match_stats_match_player_unique",
+    ).on(table.matchId, table.playerId),
+  }),
+);
 
 // =============================================================================
 // █ RELATIONS
@@ -210,8 +227,8 @@ export const matchStats = pgTable("match_stats", {
 export const matchesRelations = relations(matches, ({ many }) => ({
   sets: many(matchSets),
   stats: many(matchStats),
-  pointHistory: many(pointHistory), // Relación añadida
-  commentary: many(commentary), // Relación añadida
+  pointHistory: many(pointHistory),
+  commentary: many(commentary),
 }));
 
 export const pointHistoryRelations = relations(pointHistory, ({ one }) => ({
@@ -220,7 +237,6 @@ export const pointHistoryRelations = relations(pointHistory, ({ one }) => ({
     references: [matches.id],
   }),
   player: one(players, {
-    // El jugador que hizo el punto
     fields: [pointHistory.winnerPlayerId],
     references: [players.id],
   }),

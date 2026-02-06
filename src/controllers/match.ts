@@ -41,10 +41,14 @@ export async function getMatchSnapshot(
   // Mapeo DB -> Domain Type
   return {
     id: matchData.id,
+    pairAName: matchData.pairAName || "Unknown",
+    pairBName: matchData.pairBName || "Unknown",
     pairAScore: matchData.pairAScore || "0",
     pairBScore: matchData.pairBScore || "0",
     pairAGames: matchData.pairAGames || 0,
     pairBGames: matchData.pairBGames || 0,
+    pairASets: matchData.pairASets || 0,
+    pairBSets: matchData.pairBSets || 0,
     currentSetIdx: matchData.currentSetIdx || 1,
     isTieBreak: matchData.isTieBreak || false,
     hasGoldPoint: matchData.hasGoldPoint || false,
@@ -119,10 +123,14 @@ export async function processPointScored(payload: {
   // 3. ENGINE PROCESS (Pure Calculation)
   const currentSnapshot: MatchSnapshot = {
     id: matchData.id,
+    pairAName: matchData.pairAName || "Unknown",
+    pairBName: matchData.pairBName || "Unknown",
     pairAScore: matchData.pairAScore || "0",
     pairBScore: matchData.pairBScore || "0",
     pairAGames: matchData.pairAGames || 0,
     pairBGames: matchData.pairBGames || 0,
+    pairASets: matchData.pairASets || 0,
+    pairBSets: matchData.pairBSets || 0,
     currentSetIdx: matchData.currentSetIdx || 1,
     isTieBreak: matchData.isTieBreak || false,
     hasGoldPoint: matchData.hasGoldPoint || false,
@@ -178,20 +186,20 @@ export async function processPointScored(payload: {
         ...setCompleted,
       });
 
-      // CHECK MATCH WIN (Best of 3)
-      // Necesitamos contar sets ganados anteriormente + el actual.
-      const prevSets = await tx
-        .select()
-        .from(matchSets)
-        .where(eq(matchSets.matchId, matchIdInt));
+      // [INCREMENT] -> Actualizar contador de sets en nextSnapshot
+      const setWinner =
+        setCompleted.pairAGames > setCompleted.pairBGames ? "pair_a" : "pair_b";
 
-      let setsA = 0;
-      let setsB = 0;
-
-      for (const s of prevSets) {
-        if (s.pairAGames > s.pairBGames) setsA++;
-        else setsB++;
+      if (setWinner === "pair_a") {
+        nextSnapshot.pairASets++;
+      } else {
+        nextSnapshot.pairBSets++;
       }
+
+      // CHECK MATCH WIN (Best of 3)
+      // Usamos los contadores actualizados del snapshot
+      const setsA = nextSnapshot.pairASets;
+      const setsB = nextSnapshot.pairBSets;
 
       if (setsA >= 2) {
         finalWinner = "pair_a";
@@ -214,6 +222,8 @@ export async function processPointScored(payload: {
         pairBScore: nextSnapshot.pairBScore,
         pairAGames: nextSnapshot.pairAGames,
         pairBGames: nextSnapshot.pairBGames,
+        pairASets: nextSnapshot.pairASets,
+        pairBSets: nextSnapshot.pairBSets,
         currentSetIdx: nextSnapshot.currentSetIdx,
         isTieBreak: nextSnapshot.isTieBreak,
         winnerSide: finalWinner,

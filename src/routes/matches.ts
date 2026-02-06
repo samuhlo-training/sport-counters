@@ -99,6 +99,7 @@ matchesApp.post("/", async (c) => {
           pairBPlayer1Id: data.pairBPlayer1Id,
           pairBPlayer2Id: data.pairBPlayer2Id,
           servingPlayerId: data.pairAPlayer1Id, // Initial server
+          hasGoldPoint: data.hasGoldPoint, // Modo de juego (Punto de Oro vs Clásico)
 
           startTime: new Date(data.startTime),
           endTime: data.endTime ? new Date(data.endTime) : null,
@@ -116,7 +117,7 @@ matchesApp.post("/", async (c) => {
 
       if (!match) throw new Error("Match insert failed");
 
-      // B. Init Stats for 4 players
+      // B. Init Stats for 4 players (deduplicated to avoid constraint violations)
       const baseStats = {
         matchId: match.id,
         pointsWon: 0,
@@ -125,12 +126,23 @@ matchesApp.post("/", async (c) => {
         smashWinners: 0, // NEW field
       };
 
-      await tx.insert(matchStats).values([
-        { ...baseStats, playerId: data.pairAPlayer1Id },
-        { ...baseStats, playerId: data.pairAPlayer2Id },
-        { ...baseStats, playerId: data.pairBPlayer1Id },
-        { ...baseStats, playerId: data.pairBPlayer2Id },
-      ]);
+      // Collect all player IDs, filter falsy, and deduplicate
+      const allPlayerIds = [
+        data.pairAPlayer1Id,
+        data.pairAPlayer2Id,
+        data.pairBPlayer1Id,
+        data.pairBPlayer2Id,
+      ].filter((id): id is number => id != null);
+
+      const uniquePlayerIds = [...new Set(allPlayerIds)];
+
+      // Map each unique ID to a stats object
+      const uniqueStatsArray = uniquePlayerIds.map((playerId) => ({
+        ...baseStats,
+        playerId,
+      }));
+
+      await tx.insert(matchStats).values(uniqueStatsArray);
 
       return match;
     });
@@ -142,7 +154,7 @@ matchesApp.post("/", async (c) => {
     try {
       broadcastMatchCreated(newMatch);
     } catch (e) {
-      console.error("Broadcast failed", e);
+      console.error(`[ERR]   :: BCAST_FAIL    :: match: ${newMatch.id}`, e);
     }
 
     return c.json({ data: newMatch }, 201);

@@ -39,12 +39,16 @@ export type PointMethod =
 // [DB] -> Coincide con la estructura de la tabla 'matches'.
 export interface MatchSnapshot {
   id: number;
+  pairAName: string;
+  pairBName: string;
 
   // -- SCORE --
   pairAScore: string; // "0", "15", "40", "AD", o "7" (en tiebreak)
   pairBScore: string;
   pairAGames: number;
   pairBGames: number;
+  pairASets: number;
+  pairBSets: number;
   currentSetIdx: number; // 1, 2, 3
 
   // -- FLAGS --

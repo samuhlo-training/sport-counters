@@ -75,8 +75,15 @@ export async function syncMatchStatus(
   const nextStatus = getMatchStatus(match.startTime, match.endTime);
 
   if (!nextStatus) {
-    // Si falla el cálculo, mantenemos el estado actual por seguridad
-    return match.status as MatchStatus;
+    // [VALIDATION] -> Verificar que match.status sea un valor válido antes de devolverlo
+    const isValidStatus = Object.values(MATCH_STATUS).includes(
+      match.status as any,
+    );
+
+    // Si el estado actual es válido, lo mantenemos; de lo contrario, devolvemos un fallback seguro
+    return isValidStatus
+      ? (match.status as MatchStatus)
+      : MATCH_STATUS.SCHEDULED;
   }
 
   // [OPTIMIZATION] -> Solo actualizamos si hubo cambio real

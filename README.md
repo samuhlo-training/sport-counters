@@ -32,7 +32,7 @@
 >
 >
 > **ORIGIN:** Based on the [WebSockets Crash Course](https://www.youtube.com/watch?v=pbOXOY78dNA) by [JavaScript Mastery](https://www.youtube.com/@javascriptmastery).
-> *Adapted to Bun + Hono ecosystem by user with extensive educational comments.*
+> *Adapted to Bun + Hono ecosystem with extensive educational comments.*
 > <br />
 > <br />
 
@@ -70,6 +70,35 @@ bun run db:migrate
 bun run dev
 ```
 
+### 02.1 __ VARIABLES DE ENTORNO
+
+Para que los comandos de base de datos y el limitador de trafico funcionen correctamente, es necesario configurar un archivo `.env` en la raíz del proyecto:
+
+| VARIABLE | DESCRIPCIÓN | NOTA |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | String de conexión a Postgres (Neon) | Necesario para ORM y migraciones |
+| `UPSTASH_REDIS_REST_URL` | URL de la API REST de Upstash Redis | Control de tráfico (Rate Limit) |
+| `UPSTASH_REDIS_REST_TOKEN` | Token de autenticación de Upstash | Control de tráfico (Rate Limit) |
+| `PORT` | Puerto donde correrá el servidor | Opcional (Default: `8000`) |
+| `HOST` | Host para la interfaz de red | Opcional (Default: `0.0.0.0`) |
+
+#### Estructura sugerida (`.env`)
+```bash
+# PostgreSQL Connection (Neon)
+DATABASE_URL='postgresql://user:password@host.aws.neon.tech/neondb?sslmode=require'
+
+# Upstash Redis (Serverless Rate Limiting)
+UPSTASH_REDIS_REST_URL='https://your-instance.upstash.io'
+UPSTASH_REDIS_REST_TOKEN='your_auth_token'
+
+# Server Config
+PORT=8000
+HOST='0.0.0.0'
+```
+
+> [!CAUTION]
+> **SEGURIDAD:** Mantén tus secretos seguros. El archivo `.env` contiene credenciales sensibles y **NUNCA** debe ser incluido en el control de versiones (Git).
+
 ### 03 __ CARACTERÍSTICAS CLAVE
 
 *   **Zero-Overhead WebSockets**: Uso directo de `Bun.upgrade` integrado en Hono.
@@ -81,6 +110,16 @@ A. THE HOOK (RESILIENT MIDDLEWARE)
 Intercepta conexiones WS, valida IP contra Redis Cloud y aplica lógica de fallback si el servicio externo falla.
 
 ```typescript
+import { Hono } from "hono";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+const app = new Hono();
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(10, "10 s"),
+});
+
 // [BRUTALIST SNIPPET] :: src/index.ts
 app.use("/ws", async (c, next) => {
   // A. IDENTIFICAR -> IP Fallback logic
@@ -101,6 +140,24 @@ app.use("/ws", async (c, next) => {
 
   await next();
 });
+```
+
+### 04 __ CALIDAD Y PRUEBAS
+
+El sistema cuenta con una suite de pruebas automatizadas que garantizan la integridad de la lógica de puntuación y la estabilidad de las comunicaciones en tiempo real.
+
+| TIPO | ARCHIVO | COBERTURA |
+| :--- | :--- | :--- |
+| **Integración (API)** | `verify_matches.test.ts` | CRUD de partidos, estados y persistencia |
+| **Integración (API)** | `verify_commentary.test.ts` | Feed de comentarios, filtros y ordenación |
+| **Real-Time (WS)** | `verify_ws_snapshot.test.ts` | Suscripción y entrega de estado inicial |
+| **Real-Time (WS)** | `verify_ws_bi_directional.test.ts` | Peticiones bajo demanda sobre WebSocket |
+| **Lógica (Core)** | `verify_padel_flow.test.ts` | Flujo completo de sets, Gold Point y Tie-break |
+
+*Para ejecutar la suite completa:*
+
+```bash
+bun test
 ```
 
 <div align="center">

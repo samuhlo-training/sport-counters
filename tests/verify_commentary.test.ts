@@ -1,92 +1,62 @@
+/**
+ * █ [TEST] :: COMMENTARY_VERIFICATION
+ * =====================================================================
+ * DESC:   Tests para sistema de comentarios en matches
+ * =====================================================================
+ */
+// @ts-nocheck
 import { describe, it, expect, beforeAll } from "bun:test";
 import { db } from "../src/db/db";
-import { matches, players } from "../src/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { commentary } from "../src/db/schema";
+import { eq, desc } from "drizzle-orm";
+import {
+  createTestPlayers,
+  createTestMatch,
+  createTestCommentary,
+} from "./helpers/data-factory";
+import { TEST_CONSTANTS } from "./helpers/test-setup";
 
-const BASE_URL = "http://localhost:8000";
+const BASE_URL = TEST_CONSTANTS.BASE_URL;
 
-describe("POST /commentary/:id", () => {
+describe("Commentary API Tests", () => {
   let matchId: number;
+  let playerIds: [number, number, number, number];
 
   beforeAll(async () => {
-    // 0. ENSURE AT LEAST ONE LIVE MATCH EXISTS
-    const liveMatches = await db
-      .select()
-      .from(matches)
-      .where(eq(matches.status, "live"));
+    const testPlayers = await createTestPlayers(4, "Commentary");
+    playerIds = [
+      testPlayers[0].id,
+      testPlayers[1].id,
+      testPlayers[2].id,
+      testPlayers[3].id,
+    ];
 
-    if (liveMatches.length > 0) {
-      console.log(
-        `[TEST] ℹ️ Found ${liveMatches.length} existing LIVE matches.`,
-      );
-      // We'll set matchId to the first one for the single-target validation tests later
-      matchId = liveMatches[0]!.id;
-    } else {
-      console.log("[TEST] ⚠️ No live matches found. Creating a new one...");
-      // 1. Create Players directly in DB
-      const newPlayers = await db
-        .insert(players)
-        .values([
-          { name: "Tapia" },
-          { name: "Coello" },
-          { name: "Galán" },
-          { name: "Chingotto" },
-        ])
-        .returning();
+    const match = await createTestMatch(playerIds, {
+      pairAName: "Commentary Test A",
+      pairBName: "Commentary Test B",
+      status: "live",
+      matchType: "competitive",
+    });
 
-      const [p1, p2, p3, p4] = newPlayers;
-
-      // 2. Create Match via API
-      const matchPayload = {
-        matchType: "competitive",
-        pairAName: "Tapia/Coello",
-        pairBName: "Galán/Chingotto",
-        pairAPlayer1Id: p1!.id,
-        pairAPlayer2Id: p2!.id,
-        pairBPlayer1Id: p3!.id,
-        pairBPlayer2Id: p4!.id,
-        servingPlayerId: p1!.id,
-        status: "live", // Ensure created match is live
-        startTime: new Date().toISOString(),
-      };
-
-      const response = await fetch(`${BASE_URL}/matches`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(matchPayload),
-      });
-
-      const json = (await response.json()) as any;
-      if (!response.ok) {
-        throw new Error("Could not create match for testing");
-      }
-      matchId = json.data.id;
-      console.log(`[TEST] ✅ Created Fresh Padel Match ID: ${matchId}`);
-    }
+    matchId = match.id;
+    console.log(`✅ Created test match ${matchId} for commentary tests`);
   });
 
-  it("should broadcast commentary to ALL live matches", async () => {
-    // Get fresh list of all live matches
-    const allLiveMatches = await db
-      .select()
-      .from(matches)
-      .where(eq(matches.status, "live"));
+  // =============================================================================
+  // █ POST COMMENTARY TESTS
+  // =============================================================================
 
-    console.log(
-      `[TEST] 📡 Broadcasting comments to ${allLiveMatches.length} matches...`,
-    );
+  describe("POST /matches/:id/commentary", () => {
+    it("should create a commentary with all required fields", async () => {
+      const payload = {
+        setNumber: 1,
+        gameNumber: 3,
+        message: "¡Punto increíble de Tapia!",
+        tags: ["highlight", "winner"],
+      };
 
-    const payload = {
-      setNumber: 1,
-      gameNumber: 4,
-      message: `¡Comentario de prueba automático! [${new Date().toLocaleTimeString()}]`,
-      tags: ["broadcast", "test"],
-    };
-
-    // Iterate and send comment to EACH match
-    for (const match of allLiveMatches) {
       const response = await fetch(
-        `${BASE_URL}/matches/${match.id}/commentary`,
+        `${BASE_URL}/matches/${matchId}/commentary`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -95,131 +65,364 @@ describe("POST /commentary/:id", () => {
       );
 
       const json = (await response.json()) as any;
+
       expect(response.status).toBe(201);
-      expect(json.data.matchId).toBe(match.id);
+      expect(json.data.matchId).toBe(matchId);
+      expect(json.data.message).toBe(payload.message);
+      expect(json.data.setNumber).toBe(1);
+      expect(json.data.gameNumber).toBe(3);
+      expect(json.data.tags).toEqual(["highlight", "winner"]);
 
-      console.log(`   -> ✉️ Sent comment to Match ${match.id}`);
-    }
-
-    expect(allLiveMatches.length).toBeGreaterThan(0);
-  });
-
-  it("should fail with invalid match ID validation", async () => {
-    const response = await fetch(`${BASE_URL}/matches/invalid-id/commentary`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    expect(response.status).toBe(400);
-  });
-
-  it("should fail with invalid body", async () => {
-    const response = await fetch(`${BASE_URL}/matches/${matchId}/commentary`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: "", // Empty message
-      }),
-    });
-    expect(response.status).toBe(400);
-  });
-});
-
-describe("GET /commentary/:id", () => {
-  let matchId: number;
-
-  beforeAll(async () => {
-    // 1. Create Players (Reuse logic or create new ones)
-    const newPlayers = await db
-      .insert(players)
-      .values([
-        { name: "Lebrón" },
-        { name: "Paquito" },
-        { name: "Stupa" },
-        { name: "Di Nenno" },
-      ])
-      .returning();
-    const [p1, p2, p3, p4] = newPlayers;
-
-    // 2. Create Match
-    const matchPayload = {
-      sport: "padel",
-      pairAName: "Lebrón/Paquito",
-      pairBName: "Superpibes",
-      pairAPlayer1Id: p1!.id,
-      pairAPlayer2Id: p2!.id,
-      pairBPlayer1Id: p3!.id,
-      pairBPlayer2Id: p4!.id,
-      startTime: new Date().toISOString(),
-    };
-
-    const response = await fetch(`${BASE_URL}/matches`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(matchPayload),
+      console.log("✅ Commentary created:", json.data.id);
     });
 
-    const json = (await response.json()) as any;
-    if (!response.ok) {
-      console.error("Failed to create match for GET tests:", json);
-      throw new Error("Could not create match for GET testing");
-    }
-    matchId = json.data.id;
+    it("should create commentary without optional setNumber and gameNumber", async () => {
+      const payload = {
+        message: "Comentario general del partido",
+        tags: ["general"],
+      };
 
-    // 3. Create Initial Commentaries (Padel Context)
-    await fetch(`${BASE_URL}/matches/${matchId}/commentary`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        setNumber: 1,
-        gameNumber: 1,
-        message: "Arranca el partido en la pista central de Roland Garros.",
-        tags: ["start", "intro"],
-      }),
+      const response = await fetch(
+        `${BASE_URL}/matches/${matchId}/commentary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const json = (await response.json()) as any;
+
+      expect(response.status).toBe(201);
+      expect(json.data.message).toBe(payload.message);
+      expect(json.data.setNumber).toBeNull();
+      expect(json.data.gameNumber).toBeNull();
     });
 
-    // Add a slight delay to ensure timestamp diff
-    await new Promise((r) => setTimeout(r, 100));
+    it("should create multiple commentaries for the same match", async () => {
+      const comments = [
+        {
+          message: "Inicio del set",
+          setNumber: 1,
+          gameNumber: 1,
+          tags: ["start"],
+        },
+        {
+          message: "Break point",
+          setNumber: 1,
+          gameNumber: 2,
+          tags: ["break"],
+        },
+        { message: "Ace!", setNumber: 1, gameNumber: 3, tags: ["ace"] },
+      ];
 
-    await fetch(`${BASE_URL}/matches/${matchId}/commentary`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        setNumber: 1,
-        gameNumber: 2,
-        message: "¡Volea ganadora de Lebrón al rincón! Break temprano.",
-        tags: ["break", "winner"],
-      }),
+      for (const comment of comments) {
+        const response = await fetch(
+          `${BASE_URL}/matches/${matchId}/commentary`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(comment),
+          },
+        );
+
+        expect(response.status).toBe(201);
+      }
+
+      const allComments = await db
+        .select()
+        .from(commentary)
+        .where(eq(commentary.matchId, matchId));
+
+      expect(allComments.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it("should fail with empty message", async () => {
+      const response = await fetch(
+        `${BASE_URL}/matches/${matchId}/commentary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: "" }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+    });
+
+    it("should fail with invalid match ID", async () => {
+      const response = await fetch(`${BASE_URL}/matches/invalid/commentary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Test" }),
+      });
+
+      expect(response.status).toBe(400);
+    });
+
+    it("should handle tags array correctly", async () => {
+      const payload = {
+        message: "Multi-tag commentary",
+        tags: ["highlight", "winner", "set-point", "match-point"],
+      };
+
+      const response = await fetch(
+        `${BASE_URL}/matches/${matchId}/commentary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const json = (await response.json()) as any;
+
+      expect(response.status).toBe(201);
+      expect(json.data.tags).toEqual(payload.tags);
+      expect(json.data.tags.length).toBe(4);
     });
   });
 
-  it("should retrieve commentary for a match", async () => {
-    const response = await fetch(`${BASE_URL}/matches/${matchId}/commentary`);
-    const json = (await response.json()) as any;
+  // =============================================================================
+  // █ GET COMMENTARY TESTS
+  // =============================================================================
 
-    expect(response.status).toBe(200);
-    expect(json.data).toBeArray();
-    expect(json.data.length).toBeGreaterThanOrEqual(2);
+  describe("GET /matches/:id/commentary", () => {
+    let testMatchId: number;
+
+    beforeAll(async () => {
+      // Crear match separado con comentarios predefinidos
+      const match = await createTestMatch(playerIds, {
+        status: "live",
+        pairAName: "GET Test A",
+        pairBName: "GET Test B",
+      });
+
+      testMatchId = match.id;
+
+      // Crear 30 comentarios
+      await createTestCommentary(testMatchId, 30);
+    });
+
+    it("should retrieve all commentaries for a match", async () => {
+      const response = await fetch(
+        `${BASE_URL}/matches/${testMatchId}/commentary`,
+      );
+      const json = (await response.json()) as any;
+
+      expect(response.status).toBe(200);
+      expect(json.data).toBeArray();
+      expect(json.data.length).toBeGreaterThanOrEqual(30);
+    });
+
+    it("should order commentaries by newest first (descending createdAt)", async () => {
+      const response = await fetch(
+        `${BASE_URL}/matches/${testMatchId}/commentary`,
+      );
+      const json = (await response.json()) as any;
+
+      const data = json.data;
+      expect(data.length).toBeGreaterThan(1);
+
+      for (let i = 0; i < data.length - 1; i++) {
+        const current = new Date(data[i].createdAt).getTime();
+        const next = new Date(data[i + 1].createdAt).getTime();
+        expect(current).toBeGreaterThanOrEqual(next);
+      }
+
+      console.log("✅ Commentaries ordered correctly");
+    });
+
+    it("should respect limit parameter", async () => {
+      const response = await fetch(
+        `${BASE_URL}/matches/${testMatchId}/commentary?limit=5`,
+      );
+      const json = (await response.json()) as any;
+
+      expect(json.data.length).toBe(5);
+    });
+
+    it("should handle large limit gracefully", async () => {
+      // El límite debe ser validado y rechazar valores > 100
+      const response = await fetch(
+        `${BASE_URL}/matches/${testMatchId}/commentary?limit=1000`,
+      );
+      const json = (await response.json()) as any;
+
+      // Espera 400 porque el limit excede el máximo permitido (100)
+      expect(response.status).toBe(400);
+      expect(json.error).toBeDefined();
+    });
+
+    it("should return empty array for match with no commentaries", async () => {
+      const emptyMatch = await createTestMatch(playerIds, { status: "live" });
+
+      const response = await fetch(
+        `${BASE_URL}/matches/${emptyMatch.id}/commentary`,
+      );
+      const json = (await response.json()) as any;
+
+      expect(response.status).toBe(200);
+      expect(json.data).toBeArray();
+      expect(json.data.length).toBe(0);
+    });
+
+    it("should include all commentary fields in response", async () => {
+      const response = await fetch(
+        `${BASE_URL}/matches/${testMatchId}/commentary?limit=1`,
+      );
+      const json = (await response.json()) as any;
+
+      const comment = json.data[0];
+      expect(comment).toHaveProperty("id");
+      expect(comment).toHaveProperty("matchId");
+      expect(comment).toHaveProperty("message");
+      expect(comment).toHaveProperty("createdAt");
+      expect(comment).toHaveProperty("tags");
+    });
   });
 
-  it("should order commentary by newest first", async () => {
-    const response = await fetch(`${BASE_URL}/matches/${matchId}/commentary`);
-    const json = (await response.json()) as any;
-    const data = json.data;
+  // =============================================================================
+  // █ BROADCAST TESTS
+  // =============================================================================
 
-    if (data.length >= 2) {
-      const first = new Date(data[0].createdAt).getTime();
-      const second = new Date(data[1].createdAt).getTime();
-      expect(first).toBeGreaterThanOrEqual(second);
-    }
+  describe("Commentary Broadcast to Multiple Matches", () => {
+    it("should broadcast commentary to all live matches", async () => {
+      // Crear varios matches en estado live
+      const liveMatches = [];
+      for (let i = 0; i < 3; i++) {
+        const match = await createTestMatch(playerIds, { status: "live" });
+        liveMatches.push(match);
+      }
+
+      // Enviar comentario a cada uno
+      for (const match of liveMatches) {
+        const response = await fetch(
+          `${BASE_URL}/matches/${match.id}/commentary`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: `Broadcast test ${Date.now()}`,
+              tags: ["broadcast"],
+            }),
+          },
+        );
+
+        expect(response.status).toBe(201);
+      }
+
+      // Verificar que cada match tiene su comentario
+      for (const match of liveMatches) {
+        const comments = await db
+          .select()
+          .from(commentary)
+          .where(eq(commentary.matchId, match.id));
+
+        expect(comments.length).toBeGreaterThan(0);
+      }
+
+      console.log("✅ Broadcast to multiple matches verified");
+    });
   });
 
-  it("should respect the limit parameter", async () => {
-    const response = await fetch(
-      `${BASE_URL}/matches/${matchId}/commentary?limit=1`,
-    );
-    const json = (await response.json()) as any;
+  // =============================================================================
+  // █ DATA PERSISTENCE TESTS
+  // =============================================================================
 
-    expect(json.data.length).toBe(1);
+  describe("Commentary Data Persistence", () => {
+    it("should persist commentary data correctly in database", async () => {
+      const payload = {
+        setNumber: 2,
+        gameNumber: 5,
+        message: "Persistence test commentary",
+        tags: ["test", "persistence"],
+      };
+
+      const response = await fetch(
+        `${BASE_URL}/matches/${matchId}/commentary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const json = (await response.json()) as any;
+      const commentaryId = json.data.id;
+
+      // Verificar directamente en DB
+      const [dbComment] = await db
+        .select()
+        .from(commentary)
+        .where(eq(commentary.id, commentaryId));
+
+      expect(dbComment).toBeDefined();
+      expect(dbComment.matchId).toBe(matchId);
+      expect(dbComment.setNumber).toBe(2);
+      expect(dbComment.gameNumber).toBe(5);
+      expect(dbComment.message).toBe(payload.message);
+      expect(dbComment.tags).toEqual(payload.tags);
+
+      console.log("✅ Commentary persisted correctly in DB");
+    });
+  });
+
+  // =============================================================================
+  // █ EDGE CASES
+  // =============================================================================
+
+  describe("Commentary Edge Cases", () => {
+    it("should handle very long messages", async () => {
+      const longMessage = "A".repeat(1000);
+
+      const response = await fetch(
+        `${BASE_URL}/matches/${matchId}/commentary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: longMessage }),
+        },
+      );
+
+      const json = (await response.json()) as any;
+      expect(response.status).toBe(201);
+      expect(json.data.message).toBe(longMessage);
+    });
+
+    it("should handle special characters in messages", async () => {
+      const specialMessage = "¡Vaya remate! 🎾 ¿Lo vieron? @Tapia #Increíble";
+
+      const response = await fetch(
+        `${BASE_URL}/matches/${matchId}/commentary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: specialMessage }),
+        },
+      );
+
+      const json = (await response.json()) as any;
+      expect(response.status).toBe(201);
+      expect(json.data.message).toBe(specialMessage);
+    });
+
+    it("should handle empty tags array", async () => {
+      const response = await fetch(
+        `${BASE_URL}/matches/${matchId}/commentary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: "No tags",
+            tags: [],
+          }),
+        },
+      );
+
+      const json = (await response.json()) as any;
+      expect(response.status).toBe(201);
+      expect(json.data.tags).toEqual([]);
+    });
   });
 });

@@ -51,7 +51,7 @@ const ratelimit = new Ratelimit({
 // =============================================================================
 // █ APP: HONO ROUTER
 // =============================================================================
-const app = new Hono();
+export const app = new Hono();
 
 // [MIDDLEWARE] -> Global Request Logger
 app.use("*", async (c, next) => {
@@ -70,6 +70,12 @@ app.use("*", async (c, next) => {
  */
 app.use("/ws", async (c, next) => {
   // A. IDENTIFICAR -> Obtener IP del cliente
+  // [TEST_ENV] -> Skip rate limiting in test environment
+  if (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test") {
+    await next();
+    return;
+  }
+
   let ip =
     c.req.header("CF-Connecting-IP") ||
     c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
@@ -77,10 +83,18 @@ app.use("/ws", async (c, next) => {
   if (!ip) {
     const server = c.env as unknown as import("bun").Server<WebSocketData>;
     const socketIp = server?.requestIP(c.req.raw)?.address;
-    ip = socketIp || "127.0.0.1";
+
+    if (!socketIp) {
+      console.error(
+        `[ERR]   :: IP_UNKNOWN    :: Cannot identify client IP. Rejecting request.`,
+      );
+      return c.text("Unable to identify client", 400);
+    }
+
+    ip = socketIp;
 
     console.warn(
-      `[WARN]  :: IP_FALLBACK   :: Missing proxy headers. Using socket IP: ${ip}`,
+      `[WARN]  :: IP_FALLBACK   :: Missing proxy headers. Using socket IP: ${socketIp}`,
     );
   }
 
@@ -93,7 +107,7 @@ app.use("/ws", async (c, next) => {
     limitResult = await ratelimit.limit(ip);
   } catch (error) {
     console.error(
-      `[ERR]   :: RATELIMIT_FAIL :: ip: ${ip} | Fail-open applied`,
+      `[ERR]   :: RATELIMIT_ERR :: ip: ${ip} | Fail-open applied`,
       error,
     );
     // Fail-open: allow the request if rate limiting service is down
@@ -108,10 +122,7 @@ app.use("/ws", async (c, next) => {
     return c.text("ERROR: Rate limit exceeded. Relax.", 429);
   }
 
-  // D. PERMITIR -> Continuar
-  // [DEBUG] -> Log allowed access (Optional: comment in production)
-  // console.log(`[SEC]   :: ACCESS_OK     :: ip: ${ip} | remaining: ${remaining}`);
-
+  // D. PERMITIR -> Continue handshake
   await next();
 });
 
@@ -142,6 +153,14 @@ app.get("/ws", (c) => {
   // Bun.serve pasa la instancia 'server' como 'env' a Hono.
   const server = c.env as unknown as import("bun").Server<WebSocketData>;
 
+  // [DEFENSIVO] -> Validar que 'server' y 'upgrade' existan (Evita crash si no es Bun)
+  if (!server || typeof server.upgrade !== "function") {
+    console.error(
+      "[ERR]   :: WS_UPGRADE    :: server or upgrade method missing in environment",
+    );
+    return c.text("WebSocket upgrade failed", 500);
+  }
+
   if (server.upgrade(c.req.raw, { data: { createdAt: Date.now() } })) {
     // Return empty Response. Bun handles the native socket upgrade.
     return new Response(null);
@@ -150,31 +169,27 @@ app.get("/ws", (c) => {
   return c.text("WebSocket upgrade failed", 500);
 });
 
-// =============================================================================
-// █ CORE: BUN SERVER
-// =============================================================================
-// Bun.serve maneja el tráfico bruto TCP/HTTP.
-const server = Bun.serve<WebSocketData>({
-  port: PORT,
-  hostname: HOST,
-
-  // [FETCH_ADAPTER] -> Hono Compatibility
-  // Permitimos que Hono gestione TODO, incluyendo la ruta /ws protegida.
-  fetch: app.fetch,
-
-  // WebSocket Handlers (definidos en ./ws/server.ts)
-  websocket: websocketHandler,
-});
-
 /**
- * █ [CRITICAL] :: GLOBAL_SERVER_REFERENCE
+ * █ [CRITICAL] :: AUTO_START
  * ---------------------------------------------------------
- * Almacena la instancia del servidor para broadcasting externo.
+ * Solo iniciamos el servidor automáticamente si NO estamos en entorno de tests.
+ * En tests, el orquestador (test-server.ts) se encarga de levantarlo.
  */
-setServerRef(server);
+if (process.env.NODE_ENV !== "test" && process.env.BUN_ENV !== "test") {
+  const server = Bun.serve<WebSocketData>({
+    port: PORT,
+    hostname: HOST,
+    fetch: app.fetch,
+    websocket: websocketHandler,
+  });
 
-const baseUrl =
-  HOST === "0.0.0.0" ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
+  setServerRef(server);
 
-console.log(`[SYS]   :: BOOT_HTTP     :: ${baseUrl}`);
-console.log(`[SYS]   :: BOOT_WS       :: ${baseUrl.replace("http", "ws")}/ws`);
+  const baseUrl =
+    HOST === "0.0.0.0" ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
+
+  console.log(`[SYS]   ++ HTTP_READY    :: ${baseUrl}`);
+  console.log(
+    `[SYS]   ++ WS_READY      :: ${baseUrl.replace("http", "ws")}/ws`,
+  );
+}

@@ -27,12 +27,6 @@ export type ClientMessage =
   | { type: "SUBSCRIBE"; matchId: string }
   | { type: "UNSUBSCRIBE"; matchId: string }
   | {
-      type: "POINT_SCORED";
-      matchId: string;
-      playerId: string;
-      actionType: any;
-    } // [LEGACY] -> Mantener por compatibilidad, pero preferir API REST
-  | {
       type: "REQUEST_STATS";
       matchId: string;
       subtype: "PLAYER" | "MATCH_SUMMARY";
@@ -90,7 +84,7 @@ export const websocketHandler = {
       typeof message === "string"
         ? `${message.slice(0, 50)}${message.length > 50 ? "..." : ""}`
         : `<Buffer ${message.byteLength} bytes>`;
-    console.log(`[WS]    :: MSG_REC       :: preview: ${msgPreview}`);
+    console.log(`[WS]    << MSG_RECV      :: preview: ${msgPreview}`);
     handleMatchMessage(ws, message);
   },
 
@@ -109,15 +103,8 @@ export const websocketHandler = {
 let serverRef: Server<WebSocketData> | null = null;
 
 export function setServerRef(server: Server<WebSocketData>) {
-  console.log(`[SYS]   :: REF_SET       :: WebSocket Server linked`);
+  console.log(`[SYS]   ++ REF_LINKED    :: WebSocket Server instance stored`);
   serverRef = server;
-}
-
-export function getServerRef() {
-  if (!serverRef) {
-    throw new Error("[ERR]   :: REF_MISSING   :: Server not initialized");
-  }
-  return serverRef;
 }
 
 // Mapa local de suscriptores para gestión fina (además de los topics de Bun)
@@ -154,12 +141,12 @@ function cleanUpMatchSubscriptions(socket: ServerWebSocket<WebSocketData>) {
   }
 }
 
-function broadcastToMatch(matchId: string, payload: ServerMessage) {
+async function broadcastToMatch(matchId: string, payload: ServerMessage) {
   const subscribers = matchSubscribers.get(matchId);
   if (!subscribers || subscribers.size === 0) return;
   const message = JSON.stringify(payload);
   for (const client of subscribers) {
-    if (client.readyState === WebSocket.OPEN) {
+    if (typeof client.send === "function") {
       client.send(message);
     }
   }
@@ -230,6 +217,18 @@ async function processStatsRequest(
         subtype: "MATCH_SUMMARY",
         matchId,
         data: {
+          id: matchData.id,
+          pairAName: matchData.pairAName,
+          pairBName: matchData.pairBName,
+          pairAGames: matchData.pairAGames,
+          pairBGames: matchData.pairBGames,
+          pairASets: matchData.pairASets,
+          pairBSets: matchData.pairBSets,
+          pairAScore: matchData.pairAScore,
+          pairBScore: matchData.pairBScore,
+          currentSetIdx: matchData.currentSetIdx,
+          isTieBreak: matchData.isTieBreak,
+          hasGoldPoint: matchData.hasGoldPoint,
           currentScore: {
             sets: `${matchData.pairAGames}-${matchData.pairBGames} (Set ${matchData.currentSetIdx})`,
             points: `${matchData.pairAScore}-${matchData.pairBScore}`,
@@ -263,10 +262,18 @@ function handleMatchMessage(
     const text = typeof data === "string" ? data : data.toString();
     message = JSON.parse(text);
   } catch (err) {
-    console.error(`[WS]    :: JSON_PARSE_ERR ::`, err);
+    const text = typeof data === "string" ? data : data.toString();
+    const preview = text.length > 100 ? text.slice(0, 100) + "..." : text;
+    console.error(
+      `[WS]    :: JSON_PARSE_ERR :: Invalid JSON received:`,
+      preview,
+    );
+    console.error(
+      `[WS]    :: HINT          :: Check for semicolons (;) instead of commas (,)`,
+    );
     sendJson(socket, {
       type: "ERROR",
-      payload: "Invalid JSON",
+      payload: `Invalid JSON format. Check syntax (use commas, not semicolons): ${preview}`,
     });
     return;
   }
@@ -320,38 +327,21 @@ function handleMatchMessage(
     });
     return;
   }
-
-  // 4. POINT_SCORED (Legacy/Dev)
-  if (message.type === "POINT_SCORED") {
-    if (!message.matchId || !message.playerId || !message.actionType) {
-      sendJson(socket, {
-        type: "ERROR",
-        payload: "Missing matchId, playerId or actionType",
-      });
-      return;
-    }
-
-    processPointScored({
-      matchId: String(message.matchId),
-      playerId: String(message.playerId),
-      actionType: message.actionType,
-    }).catch((err: any) => {
-      console.error(`[WS]    :: POINT_ERR      ::`, err);
-      sendJson(socket, {
-        type: "ERROR",
-        payload: err?.message || "Unknown Error",
-      });
-    });
-    return;
-  }
 }
 
 // =============================================================================
 // █ UTILITIES: BROADCAST (LOW LEVEL)
 // =============================================================================
-export function broadcastToAll(topic: string, payload: any) {
+export async function broadcastToAll(
+  topic: string,
+  payload: any,
+): Promise<void> {
   try {
-    const server = getServerRef();
+    const server = serverRef;
+    if (!server) {
+      // Server not initialized (test environment), skip broadcast
+      return;
+    }
     server.publish(topic, JSON.stringify(payload));
   } catch (err) {
     console.error(`[WS]    :: BROADCAST_ERR :: topic: ${topic}`, err);
@@ -378,21 +368,24 @@ export function sendJson(
   }
 }
 
-export function broadcastMatchCreated(match: any) {
+export async function broadcastMatchCreated(match: any): Promise<void> {
   if (!match?.id) {
     throw new Error("[ERR]   :: MATCH_MISSING :: Match not initialized");
   }
   console.log(
-    `[WS]    -> BROADCAST     :: event: MATCH_CREATED | id: ${match.id}`,
+    `[WS]    -> BCAST_EVENT   :: type: MATCH_CREATED | id: ${match.id}`,
   );
-  broadcastToAll("global", {
+  await broadcastToAll("global", {
     type: "MATCH_CREATED",
     data: match,
   });
 }
 
-export function broadcastCommentary(matchId: string, comment: any) {
-  broadcastToMatch(matchId, {
+export async function broadcastCommentary(
+  matchId: string,
+  comment: any,
+): Promise<void> {
+  await broadcastToMatch(matchId, {
     type: "COMMENTARY",
     data: comment,
   });
