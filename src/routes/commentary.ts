@@ -8,7 +8,7 @@
  */
 import { Hono } from "hono";
 import { db } from "../db/db.ts";
-import { commentary, matches } from "../db/schema.ts"; // ADDED matches
+import { commentary, matches } from "../db/schema.ts";
 import {
   createCommentarySchema,
   listCommentaryQuerySchema,
@@ -20,6 +20,7 @@ import { broadcastCommentary } from "../ws/server.ts";
 // =============================================================================
 // █ CONFIG: ROUTER SETUP
 // =============================================================================
+// [INFO] -> Usamos Hono para este router por su simplicidad y speed.
 export const commentaryApp = new Hono();
 
 /**
@@ -82,6 +83,7 @@ commentaryApp.get("/:id/commentary", async (c) => {
 // █ ENDPOINT: POST /:id
 // =============================================================================
 // DESC: Agrega un nuevo evento (gol, tarjeta, etc.) al feed del partido.
+//       Y lo retransmite vía WebSocket.
 commentaryApp.post("/:id/commentary", async (c) => {
   // 1. VALIDATION: PARAMS
   const paramsResult = matchIdParamSchema.safeParse(c.req.param());
@@ -112,8 +114,9 @@ commentaryApp.post("/:id/commentary", async (c) => {
   const commentaryData = bodyResult.data;
 
   try {
-    // 3. AUTOMATIC CONTEXT (Refactor Task 4)
-    // Buscamos el partido para saber en qué set/juego van
+    // 3. AUTOMATIC CONTEXT (Contexto Automático)
+    // [EXPLICACION] -> Si el comentario no trae set/juego explícito, lo tomamos del partido.
+    // Esto es vital para mantener la coherencia cronológica en el feed.
     const [existingMatch] = await db
       .select({
         set: matches.currentSetIdx,
@@ -127,7 +130,7 @@ commentaryApp.post("/:id/commentary", async (c) => {
       return c.json({ error: "Match not found" }, 404);
     }
 
-    // Calculamos el gameNumber actual (Suma de juegos + 1)
+    // Calculamos el gameNumber actual (Suma de juegos + 1 para el actual)
     const currentGameNumber =
       (existingMatch.pairAGames ?? 0) + (existingMatch.pairBGames ?? 0) + 1;
 
@@ -141,7 +144,6 @@ commentaryApp.post("/:id/commentary", async (c) => {
         matchId,
         setNumber: existingMatch.set,
         gameNumber: currentGameNumber,
-        // Removed minute/period
       })
       .returning();
 
@@ -149,10 +151,12 @@ commentaryApp.post("/:id/commentary", async (c) => {
       return c.json({ error: "Failed to create commentary" }, 500);
     }
 
-    // [SUCCESS] -> Log de confirmación
+    // [SUCCESS] -> Feedback en consola
     console.log(`[DB]    ++ SAVED COMMENTARY     :: id: ${newCommentary.id}`);
 
-    // [REAL-TIME] -> Broadcast to subscribers
+    // 5. REAL-TIME BROADCAST
+    // [WS] -> Enviamos el comentario a todos los suscritos a este partido.
+    // Usamos Promise.resolve().catch(...) para que un fallo de red NO cancele la respuesta HTTP.
     Promise.resolve(broadcastCommentary(String(matchId), newCommentary)).catch(
       (wsError) => {
         console.error(

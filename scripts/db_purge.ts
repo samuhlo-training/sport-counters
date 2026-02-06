@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
  * █ SCRIPT: DB PURGE
  * =====================================================================
  * DESC:   Limpia TODAS las tablas de la base de datos.
- *         Usa TRUNCATE ... CASCADE para manejar claves foráneas.
+ *         Usa TRUNCATE ... CASCADE para eliminar datos manteniendo estructura.
  * USAGE:  bun run db:purge
  * =====================================================================
  */
@@ -13,8 +13,12 @@ async function purgeDatabase() {
   console.log("🧨 STARTING DATABASE PURGE...");
 
   try {
-    // Ordenado: TRUNCATE handlea las dependencias con CASCADE
-    // Reiniciamos IDs con RESTART IDENTITY
+    // -------------------------------------------------------------------------
+    // █ TRUNCATE CASCADE
+    // -------------------------------------------------------------------------
+    // [EXPLICACIÓN] -> Postgres requiere CASCADE porque estas tablas tienen
+    // ForeignKey constraints. Borrar 'matches' afecta a 'match_stats', etc.
+    // RESTART IDENTITY -> Reinicia los contadores de ID (serial) a 1.
     await db.execute(sql`
       TRUNCATE TABLE 
         point_history,
@@ -26,6 +30,7 @@ async function purgeDatabase() {
       RESTART IDENTITY CASCADE;
     `);
 
+    // [LOGGING] -> Feedback visual del éxito
     console.log("✅ DATABASE PURGED SUCCESSFULLY");
     console.log("   - point_history [CLEARED]");
     console.log("   - match_sets    [CLEARED]");

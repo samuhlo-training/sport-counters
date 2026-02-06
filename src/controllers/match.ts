@@ -1,7 +1,14 @@
+/**
+ * █ [CONTROLLER] :: MATCH_LOGIC
+ * =====================================================================
+ * DESC:   Orquestador de la lógica de negocio de los partidos.
+ *         Coordina DB, Motor de Puntuación (PadelEngine) y WebSockets.
+ * STATUS: STABLE
+ * =====================================================================
+ */
 import { db } from "../db/db.ts";
 import { matches, matchStats, pointHistory, matchSets } from "../db/schema.ts";
-// import { handlePointScored } from "../lib/padel-rules.ts"; // REMOVED
-import { PadelEngine } from "../utils/padelScoring.ts"; // NEW
+import { PadelEngine } from "../utils/padelScoring.ts"; // [USE] -> Motor puro
 import { eq, and, sql } from "drizzle-orm";
 import type {
   MatchSnapshot,
@@ -10,9 +17,15 @@ import type {
 } from "../types/padel.ts";
 import { broadcastToAll } from "../ws/server.ts";
 
-// Mock alias as requested by prompt (though we use the real one for functionality)
+// Mock alias para cumplir con la firma requerida (aunque broadcastToAll es la fn real)
 const broadcastToMatch = broadcastToAll;
 
+/**
+ * ◼️ FUNCTION: GET_MATCH_SNAPSHOT
+ * ---------------------------------------------------------
+ * Recupera el estado completo de un partido por ID.
+ * Útil para hidratar el cliente al conectarse (Handshake).
+ */
 export async function getMatchSnapshot(
   matchId: number,
 ): Promise<MatchSnapshot> {
@@ -25,6 +38,7 @@ export async function getMatchSnapshot(
     throw new Error(`Match ${matchId} not found`);
   }
 
+  // Mapeo DB -> Domain Type
   return {
     id: matchData.id,
     pairAScore: matchData.pairAScore || "0",
@@ -40,6 +54,15 @@ export async function getMatchSnapshot(
   };
 }
 
+/**
+ * ◼️ FUNCTION: PROCESS_POINT_SCORED
+ * ---------------------------------------------------------
+ * [CORE] -> Maneja todo el ciclo de vida de un punto:
+ * 1. Recupera estado actual de la DB.
+ * 2. Invoca al Motor de Reglas (PadelEngine).
+ * 3. Ejecuta una Transacción Atómica (ACID) para guardar todo.
+ * 4. Difunde el nuevo estado vía WebSocket.
+ */
 export async function processPointScored(payload: {
   matchId: string;
   playerId: string;
@@ -60,12 +83,14 @@ export async function processPointScored(payload: {
   const matchData = matchResult[0];
   if (!matchData) throw new Error(`Match ${matchId} not found`);
 
+  // [CHECK] -> Ignorar puntos si el partido ya acabó
   if (matchData.status === "finished") {
     console.warn(`[LOGIC] :: IGNORED :: Match ${matchId} is finished`);
     return;
   }
 
   // 2. DETERMINE SIDES
+  // Averiguamos a qué pareja pertenece el jugador que activó la acción.
   let playerSide: "pair_a" | "pair_b";
   if (
     playerIdInt === matchData.pairAPlayer1Id ||
@@ -81,17 +106,17 @@ export async function processPointScored(payload: {
     throw new Error(`Player ${playerId} not in match ${matchId}`);
   }
 
-  // Logic: "winner" and "service_ace" are positive actions for the player.
-  // "unforced_error", "forced_error", "double_fault" are NEGATIVE actions (point for opponent).
+  // [LOGIC] -> Un "winner" suma a mi lado. Un "Unforced Error" suma al RIVAL.
+  // Por tanto, definimos quién es el "scorerSide" (quien recibe el punto).
   const isPositiveAction = ["winner", "service_ace"].includes(actionType);
 
   const scorerSide = isPositiveAction
     ? playerSide
     : playerSide === "pair_a"
-      ? "pair_b"
+      ? "pair_b" // Si soy A y fallo, punto para B
       : "pair_a";
 
-  // 3. ENGINE PROCESS
+  // 3. ENGINE PROCESS (Pure Calculation)
   const currentSnapshot: MatchSnapshot = {
     id: matchData.id,
     pairAScore: matchData.pairAScore || "0",
@@ -115,17 +140,19 @@ export async function processPointScored(payload: {
   );
   const { nextSnapshot, history, setCompleted } = outcome;
 
-  // 4. TRANSACTION
+  // 4. TRANSACTION (Atomic Update)
+  // [CRITICAL] -> Todo o nada. Si falla algo, no guardamos estados corruptos.
   await db.transaction(async (tx) => {
-    // A. Point History
+    // A. Point History -> Registro de auditoría
     await tx.insert(pointHistory).values({
       matchId: matchIdInt,
       ...history,
-      winnerPlayerId: isPositiveAction ? playerIdInt : null, // If positive, player won. If error, opponent won (we might not know WHO in opponent pair)
+      winnerPlayerId: isPositiveAction ? playerIdInt : null, // Solo asignamos mérito directo si fue positivo
     });
 
-    // B. Player Stats
+    // B. Player Stats -> Actualización incremental
     if (isPositiveAction) {
+      // Uso de SQL raw para updates atómicos eficientes
       await tx.execute(sql`
         UPDATE match_stats SET 
           points_won = points_won + 1,
@@ -145,22 +172,18 @@ export async function processPointScored(payload: {
     let finalWinner = nextSnapshot.winnerSide;
 
     if (setCompleted) {
-      // Insert Set Result
+      // Registrar el Set finalizado
       await tx.insert(matchSets).values({
         matchId: matchIdInt,
         ...setCompleted,
       });
 
       // CHECK MATCH WIN (Best of 3)
-      // We need to know previous sets winners.
-      // We verify existing sets in DB + this new one.
+      // Necesitamos contar sets ganados anteriormente + el actual.
       const prevSets = await tx
         .select()
         .from(matchSets)
         .where(eq(matchSets.matchId, matchIdInt));
-      // Note: prevSets includes the one we just inserted? depends on isolation.
-      // Usually inside transaction it sees it.
-      // Let's count total sets won by A and B.
 
       let setsA = 0;
       let setsB = 0;
@@ -179,10 +202,10 @@ export async function processPointScored(payload: {
       }
     }
 
-    // D. Update Match
-    // If stats changed to 'live' from 'scheduled', update that too (Engine doesn't toggle scheduled->live explicitly usually)
+    // D. Update Match State
+    // Si pasó de 'scheduled' a 'live' por la primera acción
     if (matchData.status === "scheduled") finalStatus = "live";
-    if (finalStatus === "finished") finalStatus = "finished"; // Engine might have set it
+    if (finalStatus === "finished") finalStatus = "finished"; // Prioridad
 
     await tx
       .update(matches)
@@ -198,12 +221,13 @@ export async function processPointScored(payload: {
       })
       .where(eq(matches.id, matchIdInt));
 
-    // Update local snapshot for broadcast
+    // Update local snapshot para el broadcast
     nextSnapshot.status = finalStatus;
     nextSnapshot.winnerSide = finalWinner;
   });
 
   // 5. BROADCAST
+  // [REAL-TIME] -> Notificar a todos los clientes la nueva situación
   broadcastToMatch(matchId, {
     type: "MATCH_UPDATE",
     matchId,

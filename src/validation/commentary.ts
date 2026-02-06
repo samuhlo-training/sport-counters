@@ -2,7 +2,7 @@
  * █ [VALIDATION] :: COMMENTARY_SCHEMAS
  * =====================================================================
  * DESC:   Define las reglas de validación para la gestión de comentarios.
- *         Incluye validación de Body (POST) y Query Params (GET).
+ *         Evita inyección de datos basura en el feed en vivo.
  * STATUS: STABLE
  * =====================================================================
  */
@@ -12,18 +12,20 @@ import { z } from "zod";
  * ◼️ SCHEMA: CREATE_COMMENTARY
  * ---------------------------------------------------------
  * Reglas para validar el payload de un nuevo comentario (POST).
- * matchId se valida por separado via URL param.
+ * [CONTEXTO] -> Se puede enviar set/game manual, o dejar que el backend lo infiera.
  */
 export const createCommentarySchema = z.object({
-  // Padel specific (Optional override, but usually auto-fetched)
+  // override opcional del momento del partido (Set/Juego)
   setNumber: z.coerce.number().int().min(1).optional(),
   gameNumber: z.coerce.number().int().min(1).optional(),
 
-  // Message & Tags
+  // [CONTENT] -> El mensaje visible. Mínimo 1 caracter.
   message: z.string().min(1),
+
+  // [TAGS] -> Etiquetas para filtrado (ej: "GOLAZO", "POLEMICA")
   tags: z.array(z.string()).optional(),
 
-  // Extras
+  // [EXTRA] -> Datos crudos adicionales (JSON libre)
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -31,8 +33,8 @@ export const createCommentarySchema = z.object({
  * ◼️ SCHEMA: QUERY_PARAMS
  * ---------------------------------------------------------
  * Valida los parámetros de búsqueda para listar comentarios (GET).
- * `limit` protege contra sobrecarga de datos.
  */
 export const listCommentaryQuerySchema = z.object({
+  // [PROTECCION] -> Limitamos a 100 para evitar saturar el cliente/red.
   limit: z.coerce.number().int().positive().max(100).optional(),
 });

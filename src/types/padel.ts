@@ -6,8 +6,10 @@
  * =====================================================================
  */
 
-// 1. SCORING TYPES
-// ---------------------------------------------------------------------
+// =============================================================================
+// █ SCORING TYPES
+// =============================================================================
+// [CORE] -> La puntuación en pádel es no-lineal (15, 30, 40).
 export type PadelPoint = "0" | "15" | "30" | "40" | "AD";
 export type TieBreakPoint = number;
 
@@ -30,48 +32,59 @@ export type PointMethod =
   | "service_ace"
   | "double_fault";
 
-// 2. STATE SNAPSHOT (Matches what comes from DB)
-// ---------------------------------------------------------------------
+// =============================================================================
+// █ STATE SNAPSHOT
+// =============================================================================
+// DESC: Representación completa del estado de un partido en un instante T.
+// [DB] -> Coincide con la estructura de la tabla 'matches'.
 export interface MatchSnapshot {
   id: number;
-  // Score
-  pairAScore: string; // "0", "15", "40", "AD", or "7" (in tiebreak)
+
+  // -- SCORE --
+  pairAScore: string; // "0", "15", "40", "AD", o "7" (en tiebreak)
   pairBScore: string;
   pairAGames: number;
   pairBGames: number;
   currentSetIdx: number; // 1, 2, 3
-  isTieBreak: boolean;
-  hasGoldPoint: boolean; // Future proofing
-  winnerSide?: "pair_a" | "pair_b" | null; // null if live
 
-  // Serving
+  // -- FLAGS --
+  isTieBreak: boolean;
+  hasGoldPoint: boolean; // ¿Se juega con Punto de Oro?
+
+  // -- STATUS --
+  winnerSide?: "pair_a" | "pair_b" | null; // null si sigue vivo
   servingPlayerId?: number | null;
   status: "scheduled" | "warmup" | "live" | "finished" | "canceled";
 }
 
-// 3. RULE ENGINE OUTPUT (Result of processing a point)
-// ---------------------------------------------------------------------
+// =============================================================================
+// █ RULE ENGINE OUTPUT
+// =============================================================================
+// DESC: Resultado atómico de procesar un punto.
+// [RETURN] -> Retorna el Siguiente Estado, Historia y Eventos (Set ganado).
 export interface PointOutcome {
-  // New State to persist to 'matches'
+  // [NEW STATE] -> Estado mutado para persistir en 'matches'
   nextSnapshot: MatchSnapshot;
 
-  // Data for 'point_history'
+  // [HISTORY] -> Datos para insertar en 'point_history'
   history: {
     setNumber: number;
     gameNumber: number;
-    pointNumber: number; // Calculated by DB count + 1 normally, logic needs to handle this
+    pointNumber: number; // Calculado por DB/Controller
     winnerSide: "pair_a" | "pair_b";
     method: PointMethod;
     stroke?: PadelStroke;
     isNetPoint?: boolean;
     scoreAfterPairA: string;
     scoreAfterPairB: string;
+
+    // [DERIVED] -> Flags calculados pre/post punto
     isGamePoint: boolean;
     isSetPoint: boolean;
     isMatchPoint: boolean;
   };
 
-  // Data for 'match_sets' (Only if set finished)
+  // [EVENT] -> Solo presente si este punto cerró un set
   setCompleted?: {
     setNumber: number;
     pairAGames: number;
@@ -81,8 +94,9 @@ export interface PointOutcome {
   };
 }
 
-// 4. ENTITIES
-// ---------------------------------------------------------------------
+// =============================================================================
+// █ ENTITIES
+// =============================================================================
 export interface Player {
   id: number;
   name: string;
