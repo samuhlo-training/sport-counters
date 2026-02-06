@@ -7,7 +7,7 @@
  * =====================================================================
  */
 import type { ServerWebSocket, Server } from "bun";
-import { processPointScored } from "../controllers/match.ts";
+import { processPointScored, getMatchSnapshot } from "../controllers/match.ts";
 
 export type WebSocketData = {
   createdAt?: number;
@@ -143,16 +143,34 @@ function handleMatchMessage(
   }
 
   // 1. SUSCRIPCIONES (SUBSCRIBE)
-  if (message?.type === "SUBSCRIBE" && message?.matchId) {
-    const matchId = String(message.matchId);
-    subscribeToMatch(matchId, socket);
-    socket.subscribe(matchId); // Bun pub/sub
-    sendJson(socket, {
-      type: "SUBSCRIBED",
-      payload: `Subscribed to match ${matchId}`,
+  const matchId = String(message.matchId);
+  subscribeToMatch(matchId, socket);
+  socket.subscribe(matchId); // Bun pub/sub
+
+  // [INITIAL STATE] -> Send current snapshot immediately
+  getMatchSnapshot(Number(matchId))
+    .then((snapshot) => {
+      sendJson(socket, {
+        type: "MATCH_UPDATE",
+        matchId,
+        timestamp: Date.now(),
+        snapshot,
+        lastPoint: null, // Initial state has no last point delta
+      });
+    })
+    .catch((err) => {
+      sendJson(socket, {
+        type: "ERROR",
+        payload: "Failed to fetch match state",
+      });
+      console.error(`[WS]    :: STATE_FETCH_ERR ::`, err);
     });
-    return;
-  }
+
+  sendJson(socket, {
+    type: "SUBSCRIBED",
+    payload: `Subscribed to match ${matchId}`,
+  });
+  return;
 
   // 2. DESUSCRIPCIONES (UNSUBSCRIBE)
   if (message?.type === "UNSUBSCRIBE" && message?.matchId) {

@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
+import { db } from "../src/db/db";
+import { matches, players } from "../src/db/schema";
+import { desc, eq } from "drizzle-orm";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -6,60 +9,103 @@ describe("POST /commentary/:id", () => {
   let matchId: number;
 
   beforeAll(async () => {
-    // Create a match first to get a valid ID
-    const matchPayload = {
-      sport: "football",
-      homeTeam: "Test Home",
-      awayTeam: "Test Away",
-      startTime: new Date().toISOString(),
-      endTime: new Date(Date.now() + 90 * 60 * 1000).toISOString(), // 90 mins later
-    };
+    // 0. ENSURE AT LEAST ONE LIVE MATCH EXISTS
+    const liveMatches = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.status, "live"));
 
-    const response = await fetch(`${BASE_URL}/matches`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(matchPayload),
-    });
+    if (liveMatches.length > 0) {
+      console.log(
+        `[TEST] ℹ️ Found ${liveMatches.length} existing LIVE matches.`,
+      );
+      // We'll set matchId to the first one for the single-target validation tests later
+      matchId = liveMatches[0]!.id;
+    } else {
+      console.log("[TEST] ⚠️ No live matches found. Creating a new one...");
+      // 1. Create Players directly in DB
+      const newPlayers = await db
+        .insert(players)
+        .values([
+          { name: "Tapia" },
+          { name: "Coello" },
+          { name: "Galán" },
+          { name: "Chingotto" },
+        ])
+        .returning();
 
-    const json = (await response.json()) as any;
-    if (!response.ok) {
-      console.error("Failed to create match:", json);
-      throw new Error("Could not create match for testing");
+      const [p1, p2, p3, p4] = newPlayers;
+
+      // 2. Create Match via API
+      const matchPayload = {
+        sport: "padel",
+        pairAName: "Tapia/Coello",
+        pairBName: "Galán/Chingotto",
+        pairAPlayer1Id: p1!.id,
+        pairAPlayer2Id: p2!.id,
+        pairBPlayer1Id: p3!.id,
+        pairBPlayer2Id: p4!.id,
+        servingPlayerId: p1!.id,
+        status: "live", // Ensure created match is live
+        startTime: new Date().toISOString(),
+      };
+
+      const response = await fetch(`${BASE_URL}/matches`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(matchPayload),
+      });
+
+      const json = (await response.json()) as any;
+      if (!response.ok) {
+        throw new Error("Could not create match for testing");
+      }
+      matchId = json.data.id;
+      console.log(`[TEST] ✅ Created Fresh Padel Match ID: ${matchId}`);
     }
-    matchId = json.data.id;
-    console.log(`Created test match with ID: ${matchId}`);
   });
 
-  it("should successfully create a commentary", async () => {
+  it("should broadcast commentary to ALL live matches", async () => {
+    // Get fresh list of all live matches
+    const allLiveMatches = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.status, "live"));
+
+    console.log(
+      `[TEST] 📡 Broadcasting comments to ${allLiveMatches.length} matches...`,
+    );
+
     const payload = {
-      minute: 15,
-      sequence: 1,
-      period: "1H",
-      eventType: "GOAL",
-      actor: "Player 10",
-      team: "home",
-      message: "Goal by Player 10!",
-      metadata: { distance: "20m" },
-      tags: ["goal", "highlight"],
+      setNumber: 1,
+      gameNumber: 4,
+      message: `¡Comentario de prueba automático! [${new Date().toLocaleTimeString()}]`,
+      tags: ["broadcast", "test"],
     };
 
-    const response = await fetch(`${BASE_URL}/commentary/${matchId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    // Iterate and send comment to EACH match
+    for (const match of allLiveMatches) {
+      const response = await fetch(
+        `${BASE_URL}/matches/${match.id}/commentary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
 
-    const json = (await response.json()) as any;
-    console.log("Create Commentary Response:", json);
+      const json = (await response.json()) as any;
+      expect(response.status).toBe(201);
+      expect(json.data.matchId).toBe(match.id);
 
-    expect(response.status).toBe(201);
-    expect(json.data).toBeDefined();
-    expect(json.data.matchId).toBe(matchId);
-    expect(json.data.message).toBe(payload.message);
+      console.log(`   -> ✉️ Sent comment to Match ${match.id}`);
+    }
+
+    expect(allLiveMatches.length).toBeGreaterThan(0);
   });
 
   it("should fail with invalid match ID validation", async () => {
-    const response = await fetch(`${BASE_URL}/commentary/invalid-id`, {
+    const response = await fetch(`${BASE_URL}/matches/invalid-id/commentary`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -68,12 +114,11 @@ describe("POST /commentary/:id", () => {
   });
 
   it("should fail with invalid body", async () => {
-    const response = await fetch(`${BASE_URL}/commentary/${matchId}`, {
+    const response = await fetch(`${BASE_URL}/matches/${matchId}/commentary`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        minute: -1, // Invalid
-        message: "", // Empty
+        message: "", // Empty message
       }),
     });
     expect(response.status).toBe(400);
@@ -81,16 +126,31 @@ describe("POST /commentary/:id", () => {
 });
 
 describe("GET /commentary/:id", () => {
-  let matchId: number; // Declare matchId here for this describe block
+  let matchId: number;
 
   beforeAll(async () => {
-    // Create a match first to get a valid ID for GET tests
+    // 1. Create Players (Reuse logic or create new ones)
+    const newPlayers = await db
+      .insert(players)
+      .values([
+        { name: "Lebrón" },
+        { name: "Paquito" },
+        { name: "Stupa" },
+        { name: "Di Nenno" },
+      ])
+      .returning();
+    const [p1, p2, p3, p4] = newPlayers;
+
+    // 2. Create Match
     const matchPayload = {
-      sport: "football",
-      homeTeam: "GET Test Home",
-      awayTeam: "GET Test Away",
+      sport: "padel",
+      pairAName: "Lebrón/Paquito",
+      pairBName: "Superpibes",
+      pairAPlayer1Id: p1!.id,
+      pairAPlayer2Id: p2!.id,
+      pairBPlayer1Id: p3!.id,
+      pairBPlayer2Id: p4!.id,
       startTime: new Date().toISOString(),
-      endTime: new Date(Date.now() + 90 * 60 * 1000).toISOString(), // 90 mins later
     };
 
     const response = await fetch(`${BASE_URL}/matches`, {
@@ -105,50 +165,45 @@ describe("GET /commentary/:id", () => {
       throw new Error("Could not create match for GET testing");
     }
     matchId = json.data.id;
-    console.log(`Created test match for GET with ID: ${matchId}`);
 
-    // Create initial commentary
-    await fetch(`${BASE_URL}/commentary/${matchId}`, {
+    // 3. Create Initial Commentaries (Padel Context)
+    await fetch(`${BASE_URL}/matches/${matchId}/commentary`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        minute: 15,
-        sequence: 1,
-        period: "1H",
-        eventType: "GOAL",
-        actor: "Player 10",
-        team: "home",
-        message: "Goal by Player 10!",
-        metadata: { distance: "20m" },
-        tags: ["goal", "highlight"],
+        setNumber: 1,
+        gameNumber: 1,
+        message: "Arranca el partido en la pista central de Roland Garros.",
+        tags: ["start", "intro"],
       }),
     });
 
-    // Create another commentary to test ordering
-    await fetch(`${BASE_URL}/commentary/${matchId}`, {
+    // Add a slight delay to ensure timestamp diff
+    await new Promise((r) => setTimeout(r, 100));
+
+    await fetch(`${BASE_URL}/matches/${matchId}/commentary`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        minute: 20,
-        sequence: 2,
-        period: "1H",
-        eventType: "CARD",
-        message: "Yellow card",
+        setNumber: 1,
+        gameNumber: 2,
+        message: "¡Volea ganadora de Lebrón al rincón! Break temprano.",
+        tags: ["break", "winner"],
       }),
     });
   });
 
   it("should retrieve commentary for a match", async () => {
-    const response = await fetch(`${BASE_URL}/commentary/${matchId}`);
+    const response = await fetch(`${BASE_URL}/matches/${matchId}/commentary`);
     const json = (await response.json()) as any;
 
     expect(response.status).toBe(200);
     expect(json.data).toBeArray();
-    expect(json.data.length).toBeGreaterThanOrEqual(1);
+    expect(json.data.length).toBeGreaterThanOrEqual(2);
   });
 
   it("should order commentary by newest first", async () => {
-    const response = await fetch(`${BASE_URL}/commentary/${matchId}`);
+    const response = await fetch(`${BASE_URL}/matches/${matchId}/commentary`);
     const json = (await response.json()) as any;
     const data = json.data;
 
@@ -160,7 +215,9 @@ describe("GET /commentary/:id", () => {
   });
 
   it("should respect the limit parameter", async () => {
-    const response = await fetch(`${BASE_URL}/commentary/${matchId}?limit=1`);
+    const response = await fetch(
+      `${BASE_URL}/matches/${matchId}/commentary?limit=1`,
+    );
     const json = (await response.json()) as any;
 
     expect(json.data.length).toBe(1);

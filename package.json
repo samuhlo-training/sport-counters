@@ -7,7 +7,8 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:purge": "bun scripts/db_purge.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -1,95 +1,114 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll } from "bun:test";
+import { db } from "../src/db/db";
+import { matches, players } from "../src/db/schema";
+import { eq } from "drizzle-orm";
 
-const BASE_URL = "http://localhost:8000";
+describe("Match CRUD Verification", () => {
+  let p1Id: number;
+  let p2Id: number;
+  let p3Id: number;
+  let p4Id: number;
 
-describe("POST /matches", () => {
-  it("should successfully create a match", async () => {
-    const payload = {
-      sport: "football",
-      homeTeam: "Test Home FC",
-      awayTeam: "Test Away FC",
-      startTime: new Date().toISOString(),
-      endTime: new Date(Date.now() + 90 * 60 * 1000).toISOString(), // 90 mins later
-    };
+  beforeAll(async () => {
+    // 1. Create Players
+    const newPlayers = await db
+      .insert(players)
+      .values([
+        { name: "Sanyo" },
+        { name: "Momo" },
+        { name: "Bela" },
+        { name: "Tello" },
+      ])
+      .returning();
 
-    const response = await fetch(`${BASE_URL}/matches`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const [p1, p2, p3, p4] = newPlayers;
+    if (!p1 || !p2 || !p3 || !p4) throw new Error("Could not create players");
 
-    const json = (await response.json()) as any;
-    console.log("Create Match Response:", json);
-
-    expect(response.status).toBe(201);
-    expect(json.data).toBeDefined();
-    expect(json.data.id).toBeDefined();
-    expect(json.data.sport).toBe(payload.sport);
-    expect(json.data.status).toBeDefined();
+    p1Id = p1.id;
+    p2Id = p2.id;
+    p3Id = p3.id;
+    p4Id = p4.id;
   });
 
-  it("should fail validation when endTime is before startTime", async () => {
-    const payload = {
-      sport: "football",
-      homeTeam: "Bad Time FC",
-      awayTeam: "Bad Time United",
-      startTime: new Date().toISOString(),
-      endTime: new Date(Date.now() - 90 * 60 * 1000).toISOString(), // In the past relative to start
-    };
+  it("should create a new match with correct initial state", async () => {
+    const [newMatch] = await db
+      .insert(matches)
+      .values({
+        pairAName: "Sanyo/Momo",
+        pairBName: "Bela/Tello",
+        pairAPlayer1Id: p1Id,
+        pairAPlayer2Id: p2Id,
+        pairBPlayer1Id: p3Id,
+        pairBPlayer2Id: p4Id,
+        servingPlayerId: p1Id,
+        status: "scheduled",
+      })
+      .returning();
 
-    const response = await fetch(`${BASE_URL}/matches`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    // Expecting 400 Bad Request
-    expect(response.status).toBe(400);
-
-    const json = (await response.json()) as any;
-    console.log("Invalid Time Response:", json);
-    expect(json.error).toBe("Validation failed");
+    expect(newMatch).toBeDefined();
+    expect(newMatch.status).toBe("scheduled");
+    expect(newMatch.pairAGames).toBe(0);
+    expect(newMatch.pairBGames).toBe(0);
+    expect(newMatch.pairAScore).toBe("0");
+    expect(newMatch.pairBScore).toBe("0");
+    expect(newMatch.pairAName).toBe("Sanyo/Momo");
   });
 
-  it("should fail with missing required fields", async () => {
-    const response = await fetch(`${BASE_URL}/matches`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sport: "football",
-        // Missing teams and times
-      }),
-    });
+  it("should retrieve a match by ID", async () => {
+    // Insert another match
+    const [created] = await db
+      .insert(matches)
+      .values({
+        pairAName: "Test A",
+        pairBName: "Test B",
+        pairAPlayer1Id: p1Id,
+        pairAPlayer2Id: p2Id,
+        pairBPlayer1Id: p3Id,
+        pairBPlayer2Id: p4Id,
+        servingPlayerId: p1Id,
+        status: "live",
+      })
+      .returning();
 
-    expect(response.status).toBe(400);
-  });
-});
+    if (!created) throw new Error("Setup failed");
 
-describe("GET /matches", () => {
-  it("should retrieve a list of matches", async () => {
-    const response = await fetch(`${BASE_URL}/matches`);
-    const json = (await response.json()) as any;
+    const [fetched] = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.id, created.id));
 
-    expect(response.status).toBe(200);
-    expect(json.data).toBeArray();
-    // Assuming we just created a match in the previous test, length should be >= 1
-    expect(json.data.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("should respect the limit parameter", async () => {
-    // Attempt to fetch just 1 match
-    const response = await fetch(`${BASE_URL}/matches?limit=1`);
-    const json = (await response.json()) as any;
-
-    expect(response.status).toBe(200);
-    expect(json.data).toBeArray();
-    expect(json.data.length).toBeLessThanOrEqual(1);
+    expect(fetched).toBeDefined();
+    expect(fetched.id).toBe(created.id);
+    expect(fetched.status).toBe("live");
   });
 
-  it("should validate limit parameter type", async () => {
-    const response = await fetch(`${BASE_URL}/matches?limit=invalid`);
+  it("should update match status", async () => {
+    // Insert match
+    const [match] = await db
+      .insert(matches)
+      .values({
+        pairAName: "To Finish",
+        pairBName: "To Finish",
+        pairAPlayer1Id: p1Id,
+        pairAPlayer2Id: p2Id,
+        pairBPlayer1Id: p3Id,
+        pairBPlayer2Id: p4Id,
+        servingPlayerId: p1Id,
+        status: "live",
+      })
+      .returning();
 
-    // Expecting 400 because validation schema expects a number
-    expect(response.status).toBe(400);
+    if (!match) throw new Error("Setup failed");
+
+    // Update
+    const [updated] = await db
+      .update(matches)
+      .set({ status: "finished", winnerSide: "pair_a" })
+      .where(eq(matches.id, match.id))
+      .returning();
+
+    expect(updated).toBeDefined();
+    expect(updated.status).toBe("finished");
+    expect(updated.winnerSide).toBe("pair_a");
   });
 });

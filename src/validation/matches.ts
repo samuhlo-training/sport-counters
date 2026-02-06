@@ -63,12 +63,12 @@ const isoDateString = z
 export const createMatchSchema = z
   .object({
     sport: z.string().min(1).max(100).default("padel"),
-    homeTeamName: z.string().min(1).max(200),
-    awayTeamName: z.string().min(1).max(200),
-    player1Id: z.coerce.number().int().positive(),
-    player2Id: z.coerce.number().int().positive(),
-    player3Id: z.coerce.number().int().positive(),
-    player4Id: z.coerce.number().int().positive(),
+    pairAName: z.string().min(1).max(200).optional(),
+    pairBName: z.string().min(1).max(200).optional(),
+    pairAPlayer1Id: z.coerce.number().int().positive(),
+    pairAPlayer2Id: z.coerce.number().int().positive(),
+    pairBPlayer1Id: z.coerce.number().int().positive(),
+    pairBPlayer2Id: z.coerce.number().int().positive(),
     startTime: isoDateString,
     endTime: isoDateString.optional(),
   })

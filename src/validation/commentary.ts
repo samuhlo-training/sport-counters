@@ -15,16 +15,19 @@ import { z } from "zod";
  * matchId se valida por separado via URL param.
  */
 export const createCommentarySchema = z.object({
-  minute: z.coerce.number().int().min(0),
-  sequence: z.coerce.number().int().min(0).default(0),
-  period: z.string().min(1),
-  eventType: z.string().min(1),
-  actor: z.string().optional(),
-  team: z.string().optional(),
+  // Padel specific
+  setNumber: z.coerce.number().int().min(1).optional(),
+  gameNumber: z.coerce.number().int().min(1).optional(),
+
+  // Generic / Football legacy (optional now)
+  minute: z.coerce.number().int().min(0).optional(),
+  period: z.string().optional(),
+
   message: z.string().min(1),
-  // [FLEX] -> Metadata permite guardar extras (coords, stats, etc.)
-  metadata: z.record(z.string(), z.unknown()).optional(),
   tags: z.array(z.string()).optional(),
+
+  // Extras
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**
