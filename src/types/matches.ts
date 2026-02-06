@@ -11,7 +11,6 @@ import { z } from "zod";
 import { matches, commentary } from "../db/schema.ts";
 import {
   createMatchSchema,
-  updateScoreSchema,
   listMatchesQuerySchema,
 } from "../validation/matches.ts";
 import { MATCH_STATUS } from "../validation/matches.ts";
@@ -50,11 +49,6 @@ export type NewCommentary = InferInsertModel<typeof commentary>;
  * [DTO] -> Input validado para crear un partido.
  */
 export type CreateMatchInput = z.infer<typeof createMatchSchema>;
-
-/**
- * [DTO] -> Input validado para actualizar marcador.
- */
-export type UpdateScoreInput = z.infer<typeof updateScoreSchema>;
 
 /**
  * [DTO] -> Query params validados para listados.
