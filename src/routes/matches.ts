@@ -12,7 +12,7 @@ import {
   listMatchesQuerySchema,
 } from "../validation/matches.ts";
 import { db } from "../db/db.ts";
-import { matches } from "../db/schema.ts";
+import { matches, matchStats } from "../db/schema.ts";
 import { getMatchStatus } from "../utils/match-status.ts";
 import { desc } from "drizzle-orm";
 import { broadcastMatchCreated } from "../ws/server.ts";
@@ -85,7 +85,6 @@ matchesApp.post("/", async (c) => {
   // [START] -> Processing Request
 
   // 1. BODY VALIDATION
-  // "await c.req.json()" es la forma moderna de obtener el JSON Body.
   let body;
   try {
     body = await c.req.json();
@@ -107,50 +106,92 @@ matchesApp.post("/", async (c) => {
     );
   }
 
-  const { startTime, endTime, homeScore, awayScore, ...matchData } =
-    result.data;
+  // Destructure validated data
+  const {
+    startTime,
+    endTime,
+    player1Id,
+    player2Id,
+    player3Id,
+    player4Id,
+    sport,
+    homeTeamName,
+    awayTeamName,
+  } = result.data;
 
-  // 2. BUSINESS RULE -> Cálculo del estado en el servidor
-  const calculatedStatus = getMatchStatus(startTime, endTime);
-
-  if (!calculatedStatus) {
-    return c.json({ error: "Invalid dates for status calculation" }, 400);
+  // 2. BUSINESS RULE -> Estado inicial
+  let calculatedStatus = "scheduled";
+  if (endTime) {
+    const status = getMatchStatus(startTime, endTime);
+    if (status) calculatedStatus = status;
+  } else {
+    // Si no tenemos fin, y ya pasó la hora de inicio -> live
+    if (new Date(startTime) <= new Date()) {
+      calculatedStatus = "live";
+    }
   }
 
   try {
-    // 3. PERSISTENCE
-    console.log(`[DB]    >> INSERTING     :: sport: ${matchData.sport}`);
-    const [event] = await db
-      .insert(matches)
-      .values({
-        ...matchData,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
-        homeScore: homeScore ?? 0,
-        awayScore: awayScore ?? 0,
-        status: calculatedStatus,
-      })
-      .returning();
+    // 3. TRANSACTION (Match + Initial Stats)
+    const newMatch = await db.transaction(async (tx) => {
+      // A. Insertar Partido
+      const [match] = await tx
+        .insert(matches)
+        .values({
+          sport,
+          homeTeamName,
+          awayTeamName,
+          player1Id,
+          player2Id,
+          player3Id,
+          player4Id,
+          currentServerId: player1Id, // Empezamos sacando el P1
+          matchState: {
+            sets: [], // Historial de Sets
+            currentSet: { a: 0, b: 0 }, // Set actual
+            currentGame: { a: "0", b: "0" }, // Juego actual
+            isTieBreak: false,
+          },
+          startTime: new Date(startTime),
+          endTime: endTime ? new Date(endTime) : null,
+          status: calculatedStatus as "scheduled" | "live" | "finished",
+        })
+        .returning();
 
-    if (!event) {
-      console.error(`[ERR]   :: CREATE_MATCH  :: Insert returned no rows`);
-      return c.json({ error: "Failed to create match" }, 500);
-    }
+      if (!match) throw new Error("Match insert failed");
 
-    console.log(`[DB]    ++ SAVED         :: id: ${event.id}`);
+      // B. Inicializar Stats para los 4 jugadores
+      const baseStats = {
+        matchId: match.id,
+        pointsWon: 0,
+        winners: 0,
+        unforcedErrors: 0,
+      };
 
-    // 4. BROADCAST -> Magia en tiempo real (Real-time magic)
-    // Aislado para evitar que los fallos de transmisión interrumpan la solicitud después de la persistencia.
+      await tx.insert(matchStats).values([
+        { ...baseStats, playerId: player1Id },
+        { ...baseStats, playerId: player2Id },
+        { ...baseStats, playerId: player3Id },
+        { ...baseStats, playerId: player4Id },
+      ]);
+
+      return match;
+    });
+
+    // [SUCCESS] -> Log
+    console.log(`[DB]    ++ SAVED         :: id: ${newMatch.id}`);
+
+    // 4. BROADCAST
     try {
-      broadcastMatchCreated(event);
+      broadcastMatchCreated(newMatch);
     } catch (broadcastError) {
       console.error(
-        `[ERR]   :: BROADCAST_FAIL :: id: ${event.id}`,
+        `[ERR]   :: BROADCAST_FAIL :: id: ${newMatch.id}`,
         broadcastError,
       );
     }
 
-    return c.json({ data: event }, 201);
+    return c.json({ data: newMatch }, 201);
   } catch (error) {
     console.error(`[ERR]   :: CREATE_MATCH_ERR :: ${error}`);
     return c.json({ error: "Internal Server Error" }, 500);

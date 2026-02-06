@@ -54,17 +54,27 @@ const isoDateString = z
  * Reglas estrictas para crear un partido.
  * INCLUYE: Validación cruzada (superRefine) para lógica temporal.
  */
+/**
+ * ◼️ SCHEMA: CREATE_MATCH
+ * ---------------------------------------------------------
+ * Reglas estrictas para crear un partido.
+ * INCLUYE: Validación cruzada (superRefine) para lógica temporal.
+ */
 export const createMatchSchema = z
   .object({
-    sport: z.string().min(1).max(100),
-    homeTeam: z.string().min(1).max(200),
-    awayTeam: z.string().min(1).max(200),
+    sport: z.string().min(1).max(100).default("padel"),
+    homeTeamName: z.string().min(1).max(200),
+    awayTeamName: z.string().min(1).max(200),
+    player1Id: z.coerce.number().int().positive(),
+    player2Id: z.coerce.number().int().positive(),
+    player3Id: z.coerce.number().int().positive(),
+    player4Id: z.coerce.number().int().positive(),
     startTime: isoDateString,
-    endTime: isoDateString,
-    homeScore: z.coerce.number().int().nonnegative().optional(),
-    awayScore: z.coerce.number().int().nonnegative().optional(),
+    endTime: isoDateString.optional(),
   })
   .superRefine((data, ctx) => {
+    if (!data.endTime) return; // Si no hay fin, no validamos rango
+
     const start = new Date(data.startTime).getTime();
     const end = new Date(data.endTime).getTime();
 
@@ -83,7 +93,10 @@ export const createMatchSchema = z
  * ---------------------------------------------------------
  * Permite actualizar solo los puntajes.
  */
+// [DEPRECATED] -> Updates handled via WebSocket events (POINT_SCORED)
+/*
 export const updateScoreSchema = z.object({
   homeScore: z.coerce.number().int().nonnegative(),
   awayScore: z.coerce.number().int().nonnegative(),
 });
+*/

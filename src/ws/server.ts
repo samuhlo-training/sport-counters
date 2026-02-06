@@ -7,6 +7,7 @@
  * =====================================================================
  */
 import type { ServerWebSocket, Server } from "bun";
+import { processPointScored } from "../controllers/match.ts";
 
 export type WebSocketData = {
   createdAt?: number;
@@ -161,6 +162,32 @@ function handleMatchMessage(
     sendJson(socket, {
       type: "UNSUBSCRIBED",
       payload: `Unsubscribed from match ${matchId}`,
+    });
+    return;
+  }
+
+  // 3. EVENTO DE JUEGO (POINT_SCORED)
+  if (message?.type === "POINT_SCORED") {
+    // Validar payload mínimo
+    if (!message.matchId || !message.playerId || !message.actionType) {
+      sendJson(socket, {
+        type: "ERROR",
+        payload: "Missing matchId, playerId or actionType",
+      });
+      return;
+    }
+
+    // Delegar a MatchController
+    processPointScored({
+      matchId: String(message.matchId),
+      playerId: String(message.playerId),
+      actionType: message.actionType,
+    }).catch((err: any) => {
+      console.error(`[WS]    :: POINT_ERR      ::`, err);
+      sendJson(socket, {
+        type: "ERROR",
+        payload: err?.message || "Unknown Error",
+      });
     });
     return;
   }
