@@ -81,7 +81,8 @@ describe("Padel Flow Verification (Gold Master)", () => {
     await processPointScored({
       matchId: matchId.toString(),
       playerId: p2Id.toString(),
-      actionType: "smash",
+      actionType: "winner",
+      stroke: "smash",
     });
 
     // Point 3: Galan Unforced Error (40-0) -> Point for A

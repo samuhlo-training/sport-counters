@@ -2,7 +2,7 @@
   <br />
   <br />
 
-  # <code>SPORT-COUNTERS</code>
+  # <code>padel-counters</code>
 
   **MOTOR DE COMENTARIOS DEPORTIVOS EN TIEMPO REAL**
   <br />
@@ -57,7 +57,7 @@
 
 ```bash
 # 1. Clonar repositorio
-git clone https://github.com/samuhlo-training/sport-counters.git
+git clone https://github.com/samuhlo-training/padel-counters.git
 
 # 2. Instalar dependencias
 bun install

@@ -11,15 +11,24 @@
 export type PadelPoint = "0" | "15" | "30" | "40" | "AD";
 export type TieBreakPoint = number;
 
+export type PadelStroke =
+  | "forehand"
+  | "backhand"
+  | "smash"
+  | "bandeja"
+  | "vibora"
+  | "volley_forehand"
+  | "volley_backhand"
+  | "lob"
+  | "drop_shot"
+  | "wall_boast";
+
 export type PointMethod =
   | "winner"
   | "unforced_error"
   | "forced_error"
-  | "smash"
-  | "volley"
   | "service_ace"
-  | "double_fault"
-  | "penalty";
+  | "double_fault";
 
 // 2. STATE SNAPSHOT (Matches what comes from DB)
 // ---------------------------------------------------------------------
@@ -37,6 +46,7 @@ export interface MatchSnapshot {
 
   // Serving
   servingPlayerId?: number | null;
+  status: "scheduled" | "warmup" | "live" | "finished" | "canceled";
 }
 
 // 3. RULE ENGINE OUTPUT (Result of processing a point)
@@ -52,6 +62,8 @@ export interface PointOutcome {
     pointNumber: number; // Calculated by DB count + 1 normally, logic needs to handle this
     winnerSide: "pair_a" | "pair_b";
     method: PointMethod;
+    stroke?: PadelStroke;
+    isNetPoint?: boolean;
     scoreAfterPairA: string;
     scoreAfterPairB: string;
     isGamePoint: boolean;

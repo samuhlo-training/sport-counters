@@ -62,7 +62,9 @@ const isoDateString = z
  */
 export const createMatchSchema = z
   .object({
-    sport: z.string().min(1).max(100).default("padel"),
+    matchType: z
+      .enum(["friendly", "competitive", "tournament"])
+      .default("friendly"),
     pairAName: z.string().min(1).max(200).optional(),
     pairBName: z.string().min(1).max(200).optional(),
     pairAPlayer1Id: z.coerce.number().int().positive(),

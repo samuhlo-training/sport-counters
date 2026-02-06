@@ -8,7 +8,7 @@
  */
 import { Hono } from "hono";
 import { db } from "../db/db.ts";
-import { commentary } from "../db/schema.ts";
+import { commentary, matches } from "../db/schema.ts"; // ADDED matches
 import {
   createCommentarySchema,
   listCommentaryQuerySchema,
@@ -112,14 +112,36 @@ commentaryApp.post("/:id/commentary", async (c) => {
   const commentaryData = bodyResult.data;
 
   try {
-    // 3. PERSISTENCE
+    // 3. AUTOMATIC CONTEXT (Refactor Task 4)
+    // Buscamos el partido para saber en qué set/juego van
+    const [existingMatch] = await db
+      .select({
+        set: matches.currentSetIdx,
+        pairAGames: matches.pairAGames,
+        pairBGames: matches.pairBGames,
+      })
+      .from(matches)
+      .where(eq(matches.id, matchId));
+
+    if (!existingMatch) {
+      return c.json({ error: "Match not found" }, 404);
+    }
+
+    // Calculamos el gameNumber actual (Suma de juegos + 1)
+    const currentGameNumber =
+      (existingMatch.pairAGames ?? 0) + (existingMatch.pairBGames ?? 0) + 1;
+
+    // 4. PERSISTENCE
     console.log(`[DB]    >> INSERTING COMMENTARY :: matchId: ${matchId}`);
 
     const [newCommentary] = await db
       .insert(commentary)
       .values({
         ...commentaryData,
-        matchId, // Ensure URL param takes precedence
+        matchId,
+        setNumber: existingMatch.set,
+        gameNumber: currentGameNumber,
+        // Removed minute/period
       })
       .returning();
 
@@ -131,8 +153,6 @@ commentaryApp.post("/:id/commentary", async (c) => {
     console.log(`[DB]    ++ SAVED COMMENTARY     :: id: ${newCommentary.id}`);
 
     // [REAL-TIME] -> Broadcast to subscribers
-    // PATRÓN: Fire & Forget. No bloqueamos la respuesta HTTP si el WS falla.
-    // Solo notificamos a los clientes suscritos a este partido específico.
     Promise.resolve(broadcastCommentary(String(matchId), newCommentary)).catch(
       (wsError) => {
         console.error(

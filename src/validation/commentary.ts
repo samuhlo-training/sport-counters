@@ -15,14 +15,11 @@ import { z } from "zod";
  * matchId se valida por separado via URL param.
  */
 export const createCommentarySchema = z.object({
-  // Padel specific
+  // Padel specific (Optional override, but usually auto-fetched)
   setNumber: z.coerce.number().int().min(1).optional(),
   gameNumber: z.coerce.number().int().min(1).optional(),
 
-  // Generic / Football legacy (optional now)
-  minute: z.coerce.number().int().min(0).optional(),
-  period: z.string().optional(),
-
+  // Message & Tags
   message: z.string().min(1),
   tags: z.array(z.string()).optional(),
 

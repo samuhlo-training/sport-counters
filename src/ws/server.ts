@@ -33,7 +33,7 @@ export const websocketHandler = {
     // ACKNOWLEDGE -> Feedback inmediato para el cliente
     sendJson(ws, {
       type: "WELCOME",
-      payload: "Conectado a Sport Counters Real-Time API",
+      payload: "Conectado a Padel Counters Real-Time API",
     });
   },
 

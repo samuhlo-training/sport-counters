@@ -38,7 +38,7 @@ describe("POST /commentary/:id", () => {
 
       // 2. Create Match via API
       const matchPayload = {
-        sport: "padel",
+        matchType: "competitive",
         pairAName: "Tapia/Coello",
         pairBName: "Galán/Chingotto",
         pairAPlayer1Id: p1!.id,

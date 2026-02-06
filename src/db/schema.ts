@@ -15,6 +15,7 @@ import {
   boolean,
   index,
   jsonb, // Necesario para metadatos extra si hacen falta
+  varchar, // Added for matchType
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -30,15 +31,26 @@ export const matchStatusEnum = pgEnum("match_status", [
 ]);
 
 // Enum para saber CÓMO se ganó el punto (¡Esto da estadísticas brutales!)
+// Enum para saber CÓMO se ganó el punto (¡Esto da estadísticas brutales!)
 export const pointMethodEnum = pgEnum("point_method", [
-  "winner", // Punto ganador limpio
-  "unforced_error", // Fallo tonto del rival
-  "forced_error", // Fallo forzado por presión
-  "smash", // Remate (x3 o x4)
-  "volley", // Volea
-  "service_ace", // Saque directo
-  "double_fault", // Doble falta
-  "penalty", // Punto por sanción
+  "winner",
+  "unforced_error",
+  "forced_error",
+  "service_ace",
+  "double_fault",
+]);
+
+export const padelStrokeEnum = pgEnum("padel_stroke", [
+  "forehand",
+  "backhand",
+  "smash",
+  "bandeja",
+  "vibora",
+  "volley_forehand",
+  "volley_backhand",
+  "lob",
+  "drop_shot",
+  "wall_boast",
 ]);
 
 // =============================================================================
@@ -60,8 +72,11 @@ export const matches = pgTable(
   "matches",
   {
     id: serial("id").primaryKey(),
-    pairAName: text("pair_a_name"),
-    pairBName: text("pair_b_name"),
+    matchType: varchar("match_type", { length: 50 })
+      .default("friendly")
+      .notNull(),
+    pairAName: varchar("pair_a_name", { length: 255 }).default("Pair A"),
+    pairBName: varchar("pair_b_name", { length: 255 }).default("Pair B"),
 
     // Parejas
     pairAPlayer1Id: integer("pair_a_player1_id")
@@ -123,7 +138,10 @@ export const pointHistory = pgTable("point_history", {
   winnerPlayerId: integer("winner_player_id").references(() => players.id), // Opcional, si sabemos quién fue
 
   // ¿Cómo fue? (Estadísticas)
+  // ¿Cómo fue? (Estadísticas)
   method: pointMethodEnum("method").default("winner"),
+  stroke: padelStrokeEnum("stroke"), // Nuevo: Tipo de golpe
+  isNetPoint: boolean("is_net_point").default(false), // Nuevo: ¿Fue en la red?
 
   // SNAPSHOT: ¿Cómo quedó el marcador JUSTO DESPUÉS de este punto?
   // Esto permite "rebobinar" el partido si hay un error.

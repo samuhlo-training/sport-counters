@@ -28,7 +28,7 @@ describe("WebSocket Snapshot Verification", () => {
 
     // 2. Create Match
     const matchPayload = {
-      sport: "padel",
+      matchType: "competitive",
       pairAName: "WS Pair A",
       pairBName: "WS Pair B",
       pairAPlayer1Id: p1.id,

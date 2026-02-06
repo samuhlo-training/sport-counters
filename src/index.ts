@@ -1,7 +1,7 @@
 /**
  * █ [CORE] :: HTTP_ENTRY_POINT
  * =====================================================================
- * DESC:   Punto de entrada principal para el Backend de Sport Counters.
+ * DESC:   Punto de entrada principal para el Backend de Padel Counters.
  *         Orquesta Hono (Router), Bun (Server) y Upstash (Redis).
  * STATUS: STABLE
  * =====================================================================
@@ -127,7 +127,7 @@ app.get("/", (c) => {
   return c.json({
     status: "online",
     system: "Hono + Bun + TypeScript",
-    message: "Sport Counters API is operational 🚀",
+    message: "Padel Counters API is operational 🚀",
   });
 });
 

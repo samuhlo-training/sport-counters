@@ -10,12 +10,15 @@ import { Hono } from "hono";
 import {
   createMatchSchema,
   listMatchesQuerySchema,
+  matchIdParamSchema,
 } from "../validation/matches.ts";
 import { db } from "../db/db.ts";
 import { matches, matchStats } from "../db/schema.ts";
 import { getMatchStatus } from "../utils/match-status.ts";
 import { desc } from "drizzle-orm";
-import { broadcastMatchCreated } from "../ws/server.ts";
+import { broadcastMatchCreated } from "../ws/server.ts"; // RESTORED
+import { pointActionSchema } from "../validation/point_action.ts";
+import { processPointScored } from "../controllers/match.ts";
 
 export const matchesApp = new Hono();
 
@@ -146,5 +149,53 @@ matchesApp.post("/", async (c) => {
   } catch (error) {
     console.error(`[ERR]   :: CREATE_MATCH_ERR :: ${error}`);
     return c.json({ error: "Internal Server Error" }, 500);
+  }
+});
+
+/**
+ * ◼️ ENDPOINT: POST /:id/point
+ * ---------------------------------------------------------
+ * DESC: Procesa un punto marcado en el partido.
+ */
+matchesApp.post("/:id/point", async (c) => {
+  // 1. VALIDATION: PARAMS
+  const paramsResult = matchIdParamSchema.safeParse(c.req.param());
+  if (!paramsResult.success) {
+    return c.json({ error: "Invalid Match ID" }, 400);
+  }
+  const matchId = paramsResult.data.id;
+
+  // 2. VALIDATION: BODY
+  let body;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const result = pointActionSchema.safeParse(body);
+  if (!result.success) {
+    return c.json({ error: "Invalid Action Data", details: result.error }, 400);
+  }
+
+  // 3. CONTROLLER LOGIC
+  try {
+    await processPointScored({
+      matchId: matchId.toString(),
+      playerId: result.data.playerId.toString(),
+      actionType: result.data.actionType,
+      stroke: result.data.stroke,
+      isNetPoint: result.data.isNetPoint,
+    });
+    return c.json({ success: true, message: "Point processed" });
+  } catch (error: any) {
+    console.error(`[ERR] :: POINT_PROCESS :: ${error.message}`);
+    if (error.message.includes("not found")) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error.message.includes("finished")) {
+      return c.json({ error: "Match is finished" }, 400);
+    }
+    return c.json({ error: error.message || "Internal Error" }, 500);
   }
 });

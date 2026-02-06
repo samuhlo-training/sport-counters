@@ -1,5 +1,5 @@
 {
-  "name": "sport-counters",
+  "name": "padel-counters",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
